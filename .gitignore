@@ -4,4 +4,4 @@
 *.ipynb_checkpoints
 *.idea
 *.pdf
-*.__pycache__
+__pycache__
