@@ -13,3 +13,8 @@ class PosBCELoss:
         pos_ratio = label.mean()
         loss = torch.nn.BCEWithLogitsLoss(pos_weight=1/pos_ratio)
         return loss(pred, label)
+
+
+class NullLoss:
+    def __call__(self, x, *args):
+        return x.mean()

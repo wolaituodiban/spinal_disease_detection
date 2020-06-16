@@ -13,8 +13,7 @@ class PosDataSet:
                  images: Dict[Any, Image.Image],
                  spacings: Dict[Any, torch.Tensor],
                  annotation: Dict[Any, torch.Tensor],
-                 size: Tuple[int, int],
-                 channels):
+                 size: Tuple[int, int]):
         self.data = []
         self.label = []
         self.mask = []
@@ -27,7 +26,7 @@ class PosDataSet:
             label = gen_label(image, spacing, coord)
             mask = (coord != PADDING_VALUE).any(dim=1)
             mask = mask.reshape(mask.size(0), 1, 1)
-            self.data.append(image.expand(channels, -1, -1))
+            self.data.append(image)
             self.label.append(label)
             self.mask.append(mask)
 
@@ -35,11 +34,11 @@ class PosDataSet:
         return len(self.data)
 
     def __getitem__(self, i):
-        return (self.data[i],), (self.label[i], self.mask[i])
+        return (self.data[i], self.label[i], self.mask[i]), (self.label[i], self.mask[i])
 
 
 class PosDataLoader(DataLoader):
-    def __init__(self, images, spacings, annotation, size, batch_size, num_workers=0, channels=1):
-        dataset = PosDataSet(images, spacings, annotation, size, channels)
+    def __init__(self, images, spacings, annotation, size, batch_size, num_workers=0):
+        dataset = PosDataSet(images, spacings, annotation, size)
         super().__init__(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers,
                          pin_memory=True)
