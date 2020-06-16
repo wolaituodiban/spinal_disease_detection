@@ -11,6 +11,8 @@ from tqdm import tqdm
 
 from .dicom_utils import read_one_dcm
 
+PADDING_VALUE: int = 0
+
 
 def read_dcms(dcm_dir, error_msg=False) -> (Dict[Tuple[str, str, str], Image.Image], Dict[Tuple[str, str, str], dict]):
     """
@@ -103,8 +105,10 @@ def read_annotation(path) -> Dict[Tuple[str, str, str], Tuple[torch.Tensor, torc
             assert len(data['annotation']) == 1, (study_uid, len(data['annotation']))
             points = data['annotation'][0]['data']['point']
 
-            vertebra_label = torch.zeros([len(SPINAL_VERTEBRA_ID), 2+len(SPINAL_VERTEBRA_DISEASE_ID)], dtype=torch.long)
-            disc_label = torch.zeros([len(SPINAL_DISC_ID), 2+len(SPINAL_DISC_DISEASE_ID)], dtype=torch.long)
+            vertebra_label = torch.full([len(SPINAL_VERTEBRA_ID), 2+len(SPINAL_VERTEBRA_DISEASE_ID)],
+                                        PADDING_VALUE, dtype=torch.long)
+            disc_label = torch.full([len(SPINAL_DISC_ID), 2+len(SPINAL_DISC_DISEASE_ID)],
+                                    PADDING_VALUE, dtype=torch.long)
             for point in points:
                 identification = point['tag']['identification']
                 if identification in SPINAL_VERTEBRA_ID:
@@ -158,7 +162,7 @@ def resize(size: Tuple[int, int], image: Image.Image, spacing: torch.Tensor, *an
     return image, spacing, *annotation
 
 
-def gen_label(image: torch.Tensor, spacing: torch.Tensor, *annotation: torch.Tensor) -> List[torch.Tensor]:
+def gen_label(image: torch.Tensor, spacing: torch.Tensor, *annotation: torch.Tensor):
     """
     计算每个像素点到标注像素点的物理距离
     :param image:
@@ -176,4 +180,7 @@ def gen_label(image: torch.Tensor, spacing: torch.Tensor, *annotation: torch.Ten
             dist.append((((coord - point[:2]) * spacing) ** 2).sum(dim=-1).sqrt())
         dist = torch.stack(dist, dim=0)
         dists.append(dist)
-    return dists
+    if len(dists) == 1:
+        return dists[0]
+    else:
+        return dists
