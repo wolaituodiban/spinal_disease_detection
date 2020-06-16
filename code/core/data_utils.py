@@ -137,7 +137,7 @@ def read_annotation(path) -> Dict[Tuple[str, str, str], Tuple[torch.Tensor, torc
     return annotation
 
 
-def resize(size: list, image: Image.Image, spacing: torch.Tensor, *annotation: torch.Tensor):
+def resize(size: Tuple[int, int], image: Image.Image, spacing: torch.Tensor, *annotation: torch.Tensor):
     """
 
     :param size: [height, width]
@@ -174,6 +174,6 @@ def gen_label(image: torch.Tensor, spacing: torch.Tensor, *annotation: torch.Ten
         dist = []
         for point in _:
             dist.append((((coord - point[:2]) * spacing) ** 2).sum(dim=-1).sqrt())
-        dist = torch.stack(dist, dim=-1)
+        dist = torch.stack(dist, dim=0)
         dists.append(dist)
     return dists

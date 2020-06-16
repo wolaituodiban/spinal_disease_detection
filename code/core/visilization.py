@@ -30,5 +30,5 @@ def visilize_label(image: torch.Tensor, *label: torch.Tensor, max_dist=8) -> Ima
     image = image.clone().detach()
     print()
     for _ in label:
-        image[(_ < max_dist).sum(dim=-1).bool().unsqueeze(0)] = 0
+        image[(_ < max_dist).sum(dim=0).bool().unsqueeze(0)] = 0
     return tf.to_pil_image(image)
