@@ -162,6 +162,30 @@ def resize(size: Tuple[int, int], image: Image.Image, spacing: torch.Tensor, *an
     return image, spacing, *annotation
 
 
+def rotate_point(points: torch.Tensor, angel: float, center: torch.Tensor) -> torch.Tensor:
+    """
+    将points绕着center顺时针旋转angel度
+    :param points:
+    :param angel:
+    :param center:
+    :return:
+    """
+    angel = angel * np.pi / 180
+    center = center.unsqueeze(0)
+    cos = np.cos(angel)
+    sin = np.sin(angel)
+    rotate_mat = torch.tensor([[cos, -sin], [sin, cos]], dtype=torch.float32)
+    output = points - center
+    output = torch.matmul(output, rotate_mat)
+    return output + center
+
+
+def random_rotate(image: Image.Image, points: torch.Tensor) -> (Image.Image, torch.Tensor):
+    angel = np.random.randint(360)
+    center = torch.tensor(image.size, dtype=torch.float32) / 2
+    return tf.rotate(image, angel), rotate_point(points, angel, center)
+
+
 def gen_label(image: torch.Tensor, spacing: torch.Tensor, *annotation: torch.Tensor):
     """
     计算每个像素点到标注像素点的物理距离
