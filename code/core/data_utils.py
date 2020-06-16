@@ -103,7 +103,7 @@ def read_annotation(path) -> Dict[Tuple[str, str, str], Tuple[torch.Tensor, torc
             assert len(data['annotation']) == 1, (study_uid, len(data['annotation']))
             points = data['annotation'][0]['data']['point']
 
-            vertebra_label = torch.zeros([len(SPINAL_DISC_ID), 2+len(SPINAL_VERTEBRA_DISEASE_ID)], dtype=torch.long)
+            vertebra_label = torch.zeros([len(SPINAL_VERTEBRA_ID), 2+len(SPINAL_VERTEBRA_DISEASE_ID)], dtype=torch.long)
             disc_label = torch.zeros([len(SPINAL_DISC_ID), 2+len(SPINAL_DISC_DISEASE_ID)], dtype=torch.long)
             for point in points:
                 identification = point['tag']['identification']
