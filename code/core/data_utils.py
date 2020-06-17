@@ -1,7 +1,9 @@
 import json
+import math
+import random
 import os
 from multiprocessing import Pool, cpu_count
-from typing import Dict, List, Tuple
+import typing
 
 import numpy as np
 import torch
@@ -14,7 +16,7 @@ from .dicom_utils import read_one_dcm
 PADDING_VALUE: int = 0
 
 
-def read_dcms(dcm_dir, error_msg=False) -> (Dict[Tuple[str, str, str], Image.Image], Dict[Tuple[str, str, str], dict]):
+def read_dcms(dcm_dir, error_msg=False) -> (typing.Dict[typing.Tuple[str, str, str], Image.Image], typing.Dict[typing.Tuple[str, str, str], dict]):
     """
     读取文件夹内的所有dcm文件
     :param dcm_dir:
@@ -50,7 +52,7 @@ def read_dcms(dcm_dir, error_msg=False) -> (Dict[Tuple[str, str, str], Image.Ima
     return images, metainfos
 
 
-def get_spacing(metainfos: Dict[Tuple[str, str, str], dict]) -> Dict[Tuple[str, str, str], torch.Tensor]:
+def get_spacing(metainfos: typing.Dict[typing.Tuple[str, str, str], dict]) -> typing.Dict[typing.Tuple[str, str, str], torch.Tensor]:
     """
     从元数据中获取像素点间距的信息
     :param metainfos:
@@ -80,7 +82,7 @@ with open(os.path.join(os.path.dirname(__file__), 'json_files/spinal_disc_diseas
     SPINAL_DISC_DISEASE_ID = json.load(file)
 
 
-def read_annotation(path) -> Dict[Tuple[str, str, str], Tuple[torch.Tensor, torch.Tensor]]:
+def read_annotation(path) -> typing.Dict[typing.Tuple[str, str, str], typing.Tuple[torch.Tensor, torch.Tensor]]:
     """
 
     :param path:
@@ -141,13 +143,13 @@ def read_annotation(path) -> Dict[Tuple[str, str, str], Tuple[torch.Tensor, torc
     return annotation
 
 
-def resize(size: Tuple[int, int], image: Image.Image, spacing: torch.Tensor, *annotation: torch.Tensor):
+def resize(size: typing.Tuple[int, int], image: Image.Image, spacing: torch.Tensor, *annotations: torch.Tensor):
     """
 
     :param size: [height, width]
     :param image: 图像
     :param spacing: 像素点间距
-    :param annotation: 标注
+    :param annotations: 标注
     :return: resize之后的image，spacing，annotation
     """
     height_ratio = size[0] / image.size[0]
@@ -155,11 +157,11 @@ def resize(size: Tuple[int, int], image: Image.Image, spacing: torch.Tensor, *an
 
     ratio = torch.tensor([width_ratio, height_ratio])
     spacing = spacing * ratio
-    annotation = [_.clone().float() for _ in annotation]
-    for _ in annotation:
-        _[:, :2] *= ratio
+    annotations = [annotation.clone().float() for annotation in annotations]
+    for annotation in annotations:
+        annotation[:, :2] *= ratio
     image = tf.resize(image, size)
-    return image, spacing, *annotation
+    return image, spacing, *annotations
 
 
 def rotate_point(points: torch.Tensor, angel: float, center: torch.Tensor) -> torch.Tensor:
@@ -170,27 +172,27 @@ def rotate_point(points: torch.Tensor, angel: float, center: torch.Tensor) -> to
     :param center:
     :return:
     """
-    angel = angel * np.pi / 180
+    angel = angel * math.pi / 180
     center = center.unsqueeze(0)
-    cos = np.cos(angel)
-    sin = np.sin(angel)
+    cos = math.cos(angel)
+    sin = math.sin(angel)
     rotate_mat = torch.tensor([[cos, -sin], [sin, cos]], dtype=torch.float32)
     output = points - center
     output = torch.matmul(output, rotate_mat)
     return output + center
 
 
-def random_rotate(image: Image.Image, points: torch.Tensor) -> (Image.Image, torch.Tensor):
-    angel = np.random.randint(360)
+def random_rotate(image: Image.Image, points: torch.Tensor, max_angel=180) -> (Image.Image, torch.Tensor):
+    angel = random.randint(-max_angel, max_angel)
     center = torch.tensor(image.size, dtype=torch.float32) / 2
     return tf.rotate(image, angel), rotate_point(points, angel, center)
 
 
-def gen_label(image: torch.Tensor, spacing: torch.Tensor, *annotation: torch.Tensor):
+def gen_label(image: torch.Tensor, spacing: torch.Tensor, *annotations: torch.Tensor):
     """
     计算每个像素点到标注像素点的物理距离
     :param image:
-    :param annotation:
+    :param annotations:
     :param spacing:
     :return:
     """
@@ -198,9 +200,9 @@ def gen_label(image: torch.Tensor, spacing: torch.Tensor, *annotation: torch.Ten
     # 注意需要反转横纵坐标
     coord = torch.stack(coord[::-1], dim=1).reshape(image.size(1), image.size(2), 2)
     dists = []
-    for _ in annotation:
+    for annotation in annotations:
         dist = []
-        for point in _:
+        for point in annotation:
             dist.append((((coord - point[:2]) * spacing) ** 2).sum(dim=-1).sqrt())
         dist = torch.stack(dist, dim=0)
         dists.append(dist)

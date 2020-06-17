@@ -14,16 +14,20 @@ class PosModel(torch.nn.Module):
         self.loss = PosBCELoss(max_dist)
 
     def forward(self, images, labels=None, masks=None):
+        scores = self.cal_scores(images)
+        if self.training:
+            return self.loss(scores, labels, masks),
+        else:
+            return self._inference(scores)
+
+    def cal_scores(self, images):
         images = images.to(self.fc.weight.device)
         images = (images - self.pixel_mean) / self.pixel_std
         images = images.expand(-1, 3, -1, -1)
         feature_maps = self.backbone(images)
         scores = self.fc(feature_maps['0'])
         scores = interpolate(scores, images.shape[-2:])
-        if self.training:
-            return self.loss(scores, labels, masks),
-        else:
-            return self._inference(scores)
+        return scores
 
     @staticmethod
     def _inference(score):
