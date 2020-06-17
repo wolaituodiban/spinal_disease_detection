@@ -143,37 +143,39 @@ def read_annotation(path) -> typing.Dict[typing.Tuple[str, str, str], typing.Tup
     return annotation
 
 
-def resize(size: typing.Tuple[int, int], image: Image.Image, spacing: torch.Tensor, *annotations: torch.Tensor):
+def resize(size: typing.Tuple[int, int], image: Image.Image, spacing: torch.Tensor, *coords: torch.Tensor):
     """
 
-    :param size: [height, width]
+    :param size: [height, width]，height对应纵坐标，width对应横坐标
     :param image: 图像
     :param spacing: 像素点间距
-    :param annotations: 标注
+    :param coords: 标注是图像上的坐标，[[横坐标,纵坐标]]，横坐标从左到有，纵坐标从上到下
     :return: resize之后的image，spacing，annotation
     """
-    height_ratio = size[0] / image.size[0]
-    width_ratio = size[1] / image.size[1]
+    # image.size是[width, height]
+    height_ratio = size[0] / image.size[1]
+    width_ratio = size[1] / image.size[0]
 
     ratio = torch.tensor([width_ratio, height_ratio])
-    spacing = spacing * ratio
-    annotations = [annotation.clone().float() for annotation in annotations]
-    for annotation in annotations:
-        annotation[:, :2] *= ratio
+    spacing = spacing / ratio
+    coords = [coord * ratio for coord in coords]
     image = tf.resize(image, size)
-    return image, spacing, *annotations
+    return image, spacing, *coords
 
 
 def rotate_point(points: torch.Tensor, angel: float, center: torch.Tensor) -> torch.Tensor:
     """
     将points绕着center顺时针旋转angel度
-    :param points:
+    :param points: size of（*， 2）
     :param angel:
-    :param center:
+    :param center: size of（2，）
     :return:
     """
+    if angel == 0:
+        return points
     angel = angel * math.pi / 180
-    center = center.unsqueeze(0)
+    while len(center.shape) < len(points.shape):
+        center = center.unsqueeze(0)
     cos = math.cos(angel)
     sin = math.sin(angel)
     rotate_mat = torch.tensor([[cos, -sin], [sin, cos]], dtype=torch.float32)
@@ -182,28 +184,31 @@ def rotate_point(points: torch.Tensor, angel: float, center: torch.Tensor) -> to
     return output + center
 
 
-def random_rotate(image: Image.Image, points: torch.Tensor, max_angel=180) -> (Image.Image, torch.Tensor):
-    angel = random.randint(-max_angel, max_angel)
+def rotate(image: Image.Image, points: torch.Tensor, angel: int) -> (Image.Image, torch.Tensor):
     center = torch.tensor(image.size, dtype=torch.float32) / 2
     return tf.rotate(image, angel), rotate_point(points, angel, center)
 
 
-def gen_label(image: torch.Tensor, spacing: torch.Tensor, *annotations: torch.Tensor):
+def gen_label(image: torch.Tensor, spacing: torch.Tensor, *gt_coords: torch.Tensor, angel=0):
     """
-    计算每个像素点到标注像素点的物理距离
-    :param image:
-    :param annotations:
+    先将每个像素点的坐标顺时针旋转angel之后，再计算到标注像素点的物理距离
+    :param image: height * weight
+    :param gt_coords: size of（*， 2）
     :param spacing:
+    :param angel: 
     :return:
     """
     coord = torch.where(image.squeeze() < np.inf)
     # 注意需要反转横纵坐标
+    center = torch.tensor([image.shape[2], image.shape[1]], dtype=torch.float32) / 2
     coord = torch.stack(coord[::-1], dim=1).reshape(image.size(1), image.size(2), 2)
+    coord = rotate_point(coord, angel, center)
     dists = []
-    for annotation in annotations:
+    for gt_coord in gt_coords:
+        gt_coord = rotate_point(gt_coord, angel, center)
         dist = []
-        for point in annotation:
-            dist.append((((coord - point[:2]) * spacing) ** 2).sum(dim=-1).sqrt())
+        for point in gt_coord:
+            dist.append((((coord - point) * spacing) ** 2).sum(dim=-1).sqrt())
         dist = torch.stack(dist, dim=0)
         dists.append(dist)
     if len(dists) == 1:
