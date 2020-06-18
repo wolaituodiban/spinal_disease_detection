@@ -1,7 +1,7 @@
 import torch
 
 
-class PosBCELoss:
+class KeyPointBCELoss:
     def __init__(self, max_dist=8):
         self.max_dist = max_dist
 

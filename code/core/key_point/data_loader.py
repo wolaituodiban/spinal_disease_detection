@@ -10,7 +10,7 @@ from PIL import Image
 from ..data_utils import resize, rotate, gen_label, PADDING_VALUE
 
 
-class PosDataSet:
+class KeyPointDataSet:
     def __init__(self,
                  images: Dict[Any, Image.Image],
                  spacings: Dict[Any, torch.Tensor],
@@ -88,10 +88,10 @@ class PosDataSet:
         return (images, labels, masks), (labels, masks)
 
 
-class PosDataLoader(DataLoader):
+class KeyPointDataLoader(DataLoader):
     def __init__(self, images, spacings, annotation, batch_size, num_workers=0, random_resize=False, prob_rotate=False,
                  max_angel=0, num_rep=1, prob_reverse=0):
-        dataset = PosDataSet(images, spacings, annotation, random_resize=random_resize, prob_rotate=prob_rotate,
-                             max_angel=max_angel, num_rep=num_rep, prob_reverse=prob_reverse)
+        dataset = KeyPointDataSet(images, spacings, annotation, random_resize=random_resize, prob_rotate=prob_rotate,
+                                  max_angel=max_angel, num_rep=num_rep, prob_reverse=prob_reverse)
         super().__init__(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers,
                          pin_memory=True, collate_fn=dataset.collate_fn)

@@ -1,17 +1,20 @@
 import torch
 from torch.nn.functional import interpolate
 from torchvision.models.detection.backbone_utils import BackboneWithFPN
-from .loss import PosBCELoss
+from .loss import KeyPointBCELoss
 
 
-class PosModel(torch.nn.Module):
-    def __init__(self, backbone: BackboneWithFPN, num_points: int, pixel_mean, pixel_std, max_dist=8):
+class KeyPointModel(torch.nn.Module):
+    def __init__(self, backbone: BackboneWithFPN, num_points: int, pixel_mean, pixel_std, loss=KeyPointBCELoss()):
         super().__init__()
         self.backbone = backbone
-        self.fc = torch.nn.Conv2d(backbone.out_channels, num_points, kernel_size=1)
+        self.fc = torch.nn.Sequential(
+            torch.nn.Dropout(0.1),
+            torch.nn.Conv2d(backbone.out_channels, num_points, kernel_size=1)
+        )
         self.register_buffer('pixel_mean', pixel_mean)
         self.register_buffer('pixel_std', pixel_std)
-        self.loss = PosBCELoss(max_dist)
+        self.loss = loss
 
     def forward(self, images, labels=None, masks=None):
         scores = self.cal_scores(images)
