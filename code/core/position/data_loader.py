@@ -15,18 +15,20 @@ class PosDataSet:
                  images: Dict[Any, Image.Image],
                  spacings: Dict[Any, torch.Tensor],
                  annotation: Dict[Any, torch.Tensor],
-                 should_resize: bool,
-                 prob_rotate: int,
-                 max_angel: int,
-                 num_rep: int):
+                 random_resize: bool,
+                 prob_rotate: float,
+                 max_angel: float,
+                 num_rep: int,
+                 prob_reverse: float):
         self.images = []
         self.spacings = []
         self.coords = []
         self.masks = []
-        self.should_resize = should_resize
+        self.should_resize = random_resize
         self.prob_ratate = prob_rotate
         self.max_angel = max_angel
         self.num_rep = num_rep
+        self.prob_reverse = prob_reverse
 
         self.max_width = -math.inf
         self.max_height = -math.inf
@@ -64,6 +66,7 @@ class PosDataSet:
         for image, spacing, coord, mask in data:
             if size is not None:
                 image, spacing, coord = resize(size, image, spacing, coord)
+
             if self.max_angel > 0 and random.random() <= self.prob_ratate:
                 angel = random.randint(-self.max_angel, self.max_angel)
                 image, coord = rotate(image, coord, angel)
@@ -72,6 +75,10 @@ class PosDataSet:
             else:
                 image = tf.to_tensor(image)
                 label = gen_label(image, spacing, coord)
+
+            if self.prob_reverse > 0 and random.random() <= self.prob_reverse:
+                image = 1 - image
+
             images.append(image)
             labels.append(label)
             masks.append(mask)
@@ -82,9 +89,9 @@ class PosDataSet:
 
 
 class PosDataLoader(DataLoader):
-    def __init__(self, images, spacings, annotation, batch_size, num_workers=0, should_resize=False, prob_rotate=False,
-                 max_angel=0, num_rep=1):
-        dataset = PosDataSet(images, spacings, annotation, should_resize=should_resize, prob_rotate=prob_rotate,
-                             max_angel=max_angel, num_rep=num_rep)
+    def __init__(self, images, spacings, annotation, batch_size, num_workers=0, random_resize=False, prob_rotate=False,
+                 max_angel=0, num_rep=1, prob_reverse=0):
+        dataset = PosDataSet(images, spacings, annotation, random_resize=random_resize, prob_rotate=prob_rotate,
+                             max_angel=max_angel, num_rep=num_rep, prob_reverse=prob_reverse)
         super().__init__(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers,
                          pin_memory=True, collate_fn=dataset.collate_fn)
