@@ -19,7 +19,7 @@ def visilize_annotation(image: Image.Image, *annotation: torch.Tensor, _range=10
     return tf.to_pil_image(image)
 
 
-def visilize_label(image: torch.Tensor, *label: torch.Tensor, max_dist=8) -> Image.Image:
+def visilize_distmap(image: torch.Tensor, *label: torch.Tensor, max_dist=8) -> Image.Image:
     """
     关于label的结构请参考gen_label
     :param image:

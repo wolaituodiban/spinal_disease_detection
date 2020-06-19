@@ -1,4 +1,4 @@
-class KeyPointAcc:
+class KeyPointHitRate:
     def __init__(self, max_dist=8):
         self.max_dist = max_dist
 

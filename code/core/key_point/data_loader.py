@@ -7,7 +7,7 @@ import torchvision.transforms.functional as tf
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from PIL import Image
-from ..data_utils import resize, rotate, gen_label, PADDING_VALUE
+from ..data_utils import resize, rotate, gen_distmap, PADDING_VALUE
 
 
 class KeyPointDataSet:
@@ -71,10 +71,10 @@ class KeyPointDataSet:
                 angel = random.randint(-self.max_angel, self.max_angel)
                 image, coord = rotate(image, coord, angel)
                 image = tf.to_tensor(image)
-                label = gen_label(image, spacing, coord, angel=-angel)
+                label = gen_distmap(image, spacing, coord, angel=-angel)
             else:
                 image = tf.to_tensor(image)
-                label = gen_label(image, spacing, coord)
+                label = gen_distmap(image, spacing, coord)
 
             if self.prob_reverse > 0 and random.random() <= self.prob_reverse:
                 image = 1 - image

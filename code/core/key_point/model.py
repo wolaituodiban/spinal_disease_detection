@@ -5,11 +5,12 @@ from .loss import KeyPointBCELoss
 
 
 class KeyPointModel(torch.nn.Module):
-    def __init__(self, backbone: BackboneWithFPN, num_points: int, pixel_mean, pixel_std, loss=KeyPointBCELoss()):
+    def __init__(self, backbone: BackboneWithFPN, num_points: int, pixel_mean, pixel_std,
+                 loss=KeyPointBCELoss(), dropout=0.1):
         super().__init__()
         self.backbone = backbone
         self.fc = torch.nn.Sequential(
-            torch.nn.Dropout(0.1),
+            torch.nn.Dropout(dropout),
             torch.nn.Conv2d(backbone.out_channels, num_points, kernel_size=1)
         )
         self.register_buffer('pixel_mean', pixel_mean)
@@ -24,7 +25,7 @@ class KeyPointModel(torch.nn.Module):
             return self._inference(scores)
 
     def cal_scores(self, images):
-        images = images.to(self.fc.weight.device)
+        images = images.to(self.pixel_mean.device)
         images = (images - self.pixel_mean) / self.pixel_std
         images = images.expand(-1, 3, -1, -1)
         feature_maps = self.backbone(images)

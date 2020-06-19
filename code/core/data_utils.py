@@ -189,7 +189,7 @@ def rotate(image: Image.Image, points: torch.Tensor, angel: int) -> (Image.Image
     return tf.rotate(image, angel), rotate_point(points, angel, center)
 
 
-def gen_label(image: torch.Tensor, spacing: torch.Tensor, *gt_coords: torch.Tensor, angel=0):
+def gen_distmap(image: torch.Tensor, spacing: torch.Tensor, *gt_coords: torch.Tensor, angel=0):
     """
     先将每个像素点的坐标顺时针旋转angel之后，再计算到标注像素点的物理距离
     :param image: height * weight
