@@ -22,9 +22,9 @@ class KeyPointDataSet:
                  prob_reverse: float):
         self.images = []
         self.spacings = []
-        self.coords = []
+        self.key_points = []
         self.masks = []
-        self.should_resize = random_resize
+        self.random_resize = random_resize
         self.prob_ratate = prob_rotate
         self.max_angel = max_angel
         self.num_rep = num_rep
@@ -36,13 +36,13 @@ class KeyPointDataSet:
         self.min_height = math.inf
 
         for k, v in tqdm(annotation.items(), ascii=True):
-            coord = torch.cat([_[:, :2] for _ in v], dim=0)
+            key_point = torch.cat([_[:, :2] for _ in v], dim=0)
             image, spacing = images[k], spacings[k]
-            mask = (coord != PADDING_VALUE).any(dim=1)
-            mask = mask.reshape(mask.size(0), 1, 1)
+            mask = (key_point != PADDING_VALUE).any(dim=1)
+            # mask = mask.reshape(mask.size(0), 1, 1)
             self.images.append(image)
             self.spacings.append(spacing)
-            self.coords.append(coord)
+            self.key_points.append(key_point)
             self.masks.append(mask)
             width, height = image.size
             self.max_height = max(self.max_height, height)
@@ -55,14 +55,14 @@ class KeyPointDataSet:
 
     def __getitem__(self, i):
         i = i % len(self.masks)
-        return self.images[i], self.spacings[i], self.coords[i], self.masks[i]
+        return self.images[i], self.spacings[i], self.key_points[i], self.masks[i]
 
     def collate_fn(self, data):
-        if self.should_resize:
+        if self.random_resize:
             size = (random.randint(self.min_width, self.max_width), random.randint(self.min_height, self.max_height))
         else:
             size = None
-        images, labels, masks = [], [], []
+        images, distmaps, masks = [], [], []
         for image, spacing, coord, mask in data:
             if size is not None:
                 image, spacing, coord = resize(size, image, spacing, coord)
@@ -71,21 +71,21 @@ class KeyPointDataSet:
                 angel = random.randint(-self.max_angel, self.max_angel)
                 image, coord = rotate(image, coord, angel)
                 image = tf.to_tensor(image)
-                label = gen_distmap(image, spacing, coord, angel=-angel)
+                distmap = gen_distmap(image, spacing, coord, angel=-angel)
             else:
                 image = tf.to_tensor(image)
-                label = gen_distmap(image, spacing, coord)
+                distmap = gen_distmap(image, spacing, coord)
 
             if self.prob_reverse > 0 and random.random() <= self.prob_reverse:
                 image = 1 - image
 
             images.append(image)
-            labels.append(label)
+            distmaps.append(distmap)
             masks.append(mask)
         images = torch.stack(images, dim=0)
-        labels = torch.stack(labels, dim=0)
+        distmaps = torch.stack(distmaps, dim=0)
         masks = torch.stack(masks, dim=0)
-        return (images, labels, masks), (labels, masks)
+        return (images, distmaps, masks), (distmaps, masks)
 
 
 class KeyPointDataLoader(DataLoader):

@@ -1,20 +1,34 @@
 import torch
 
 
+class NullLoss:
+    def __call__(self, x, *args):
+        return x.mean()
+
+
 class KeyPointBCELoss:
     def __init__(self, max_dist=8):
         self.max_dist = max_dist
 
     def __call__(self, pred: torch.Tensor, dist: torch.Tensor, mask: torch.Tensor):
-        mask = mask.to(pred.device)
-        label = dist.to(pred.device) < self.max_dist
-        pred = torch.masked_select(pred, mask)
-        label = torch.masked_select(label, mask).to(pred.dtype)
-        pos_ratio = label.mean()
-        loss = torch.nn.BCEWithLogitsLoss(pos_weight=1/pos_ratio)
+        label = dist.to(pred.device)
+
+        pred = pred[mask]
+        label = label[mask]
+        label = label < self.max_dist
+        label = label.to(pred.dtype)
+
+        loss = torch.nn.BCEWithLogitsLoss(pos_weight=1/label.mean())
         return loss(pred, label)
 
 
-class NullLoss:
-    def __call__(self, x, *args):
-        return x.mean()
+class KeyPointBCELossV2:
+    def __call__(self, pred: torch.Tensor, dist: torch.Tensor, mask: torch.Tensor):
+        label = dist.to(pred.device)
+
+        pred = pred[mask]
+        label = label[mask]
+        label = 1 / label.exp()
+
+        loss = torch.nn.BCEWithLogitsLoss(pos_weight=1/label.mean())
+        return loss(pred, label)
