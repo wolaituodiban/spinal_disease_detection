@@ -2,11 +2,12 @@ import torch
 from torch.nn.functional import interpolate
 from torchvision.models.detection.backbone_utils import BackboneWithFPN
 from .loss import KeyPointBCELoss
+from .spinal_model import SpinalModel
 
 
 class KeyPointModel(torch.nn.Module):
     def __init__(self, backbone: BackboneWithFPN, num_points: int, pixel_mean, pixel_std,
-                 loss=KeyPointBCELoss(), dropout=0.1):
+                 loss=KeyPointBCELoss(), spinal_model: SpinalModel = None, dropout=0.1):
         super().__init__()
         self.backbone = backbone
         self.fc = torch.nn.Sequential(
@@ -15,14 +16,19 @@ class KeyPointModel(torch.nn.Module):
         )
         self.register_buffer('pixel_mean', pixel_mean)
         self.register_buffer('pixel_std', pixel_std)
+        self.spinal_model = spinal_model
         self.loss = loss
+
+    def set_spinal_model(self, spinal_model: SpinalModel):
+        self.spinal_model = spinal_model
 
     def forward(self, images, labels=None, masks=None):
         scores = self.cal_scores(images)
         if self.training:
             return self.loss(scores, labels, masks),
         else:
-            return self._inference(scores)
+            heatmaps = scores.sigmoid()
+            return self._inference(heatmaps),
 
     def cal_scores(self, images):
         images = images.to(self.pixel_mean.device)
@@ -33,12 +39,15 @@ class KeyPointModel(torch.nn.Module):
         scores = interpolate(scores, images.shape[-2:])
         return scores
 
-    @staticmethod
-    def _inference(score):
-        size = score.size()
-        tensor = score.flatten(start_dim=2)
-        max_indices = torch.argmax(tensor, dim=-1)
-        image_indices, point_indices = torch.where(max_indices > -1)
+    def _inference(self, heatmaps):
+        size = heatmaps.size()
+        flatten = heatmaps.flatten(start_dim=2)
+        max_indices = torch.argmax(flatten, dim=-1)
         height_indices = max_indices.flatten() // size[3]
         width_indices = max_indices.flatten() % size[3]
-        return image_indices, point_indices, height_indices, width_indices
+        preds = torch.stack([width_indices, height_indices], dim=1)
+        preds = preds.reshape(flatten.shape[0], flatten.shape[1], 2)
+        if self.spinal_model is not None:
+            preds = [self.spinal_model.correct_prediction(preds[i], heatmaps[i]) for i in range(preds.shape[0])]
+            preds = torch.stack(preds, dim=0)
+        return preds
