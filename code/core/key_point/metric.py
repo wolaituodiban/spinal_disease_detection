@@ -3,29 +3,29 @@ class KeyPointAcc:
         self.max_dist = max_dist
         self.point = point
 
-    def __call__(self, indices0, indices1, indices2, indices3, dist, mask):
+    def __call__(self, image_indices, point_indices, height_indices, width_indices, dist, mask):
         """
 
-        :param indices0:
-        :param indices1:
-        :param indices2:
-        :param indices3:
+        :param image_indices:
+        :param point_indices:
+        :param height_indices:
+        :param width_indices:
         :param dist: (batch_size, num_points, height, width)
         :param mask: (batch_size, num_points, 1, 1)
         :return:
         """
         if self.point is not None:
-            point_mask = indices1 == self.point
-            indices0 = indices0[point_mask]
-            indices1 = indices1[point_mask]
-            indices2 = indices2[point_mask]
-            indices3 = indices3[point_mask]
+            point_mask = point_indices == self.point
+            image_indices = image_indices[point_mask]
+            point_indices = point_indices[point_mask]
+            height_indices = height_indices[point_mask]
+            width_indices = width_indices[point_mask]
 
-        dist = dist.to(indices0.device)
-        mask = mask.to(indices0.device)
+        dist = dist.to(image_indices.device)
+        mask = mask.to(image_indices.device)
 
-        mask = mask[indices0, indices1]
-        dist = dist[indices0, indices1, indices2, indices3]
+        mask = mask[image_indices, point_indices]
+        dist = dist[image_indices, point_indices, height_indices, width_indices]
         dist = dist[mask.flatten()]
         return (dist < self.max_dist).float().mean()
 

@@ -38,7 +38,7 @@ class KeyPointModel(torch.nn.Module):
         size = score.size()
         tensor = score.flatten(start_dim=2)
         max_indices = torch.argmax(tensor, dim=-1)
-        indices0, indices1 = torch.where(max_indices > -1)
-        indices2 = max_indices.flatten() // size[3]
-        indices3 = max_indices.flatten() % size[3]
-        return indices0, indices1, indices2, indices3
+        image_indices, point_indices = torch.where(max_indices > -1)
+        height_indices = max_indices.flatten() // size[3]
+        width_indices = max_indices.flatten() % size[3]
+        return image_indices, point_indices, height_indices, width_indices

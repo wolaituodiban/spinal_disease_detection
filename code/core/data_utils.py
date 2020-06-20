@@ -1,9 +1,8 @@
 import json
 import math
-import random
 import os
 from multiprocessing import Pool, cpu_count
-import typing
+from typing import Dict, Tuple
 
 import numpy as np
 import torch
@@ -16,7 +15,7 @@ from .dicom_utils import read_one_dcm
 PADDING_VALUE: int = 0
 
 
-def read_dcms(dcm_dir, error_msg=False) -> (typing.Dict[typing.Tuple[str, str, str], Image.Image], typing.Dict[typing.Tuple[str, str, str], dict]):
+def read_dcms(dcm_dir, error_msg=False) -> (Dict[Tuple[str, str, str], Image.Image], Dict[Tuple[str, str, str], dict]):
     """
     读取文件夹内的所有dcm文件
     :param dcm_dir:
@@ -52,7 +51,7 @@ def read_dcms(dcm_dir, error_msg=False) -> (typing.Dict[typing.Tuple[str, str, s
     return images, metainfos
 
 
-def get_spacing(metainfos: typing.Dict[typing.Tuple[str, str, str], dict]) -> typing.Dict[typing.Tuple[str, str, str], torch.Tensor]:
+def get_spacing(metainfos: Dict[Tuple[str, str, str], dict]) -> Dict[Tuple[str, str, str], torch.Tensor]:
     """
     从元数据中获取像素点间距的信息
     :param metainfos:
@@ -82,7 +81,7 @@ with open(os.path.join(os.path.dirname(__file__), 'json_files/spinal_disc_diseas
     SPINAL_DISC_DISEASE_ID = json.load(file)
 
 
-def read_annotation(path) -> typing.Dict[typing.Tuple[str, str, str], typing.Tuple[torch.Tensor, torch.Tensor]]:
+def read_annotation(path) -> Dict[Tuple[str, str, str], Tuple[torch.Tensor, torch.Tensor]]:
     """
 
     :param path:
@@ -143,7 +142,7 @@ def read_annotation(path) -> typing.Dict[typing.Tuple[str, str, str], typing.Tup
     return annotation
 
 
-def resize(size: typing.Tuple[int, int], image: Image.Image, spacing: torch.Tensor, *coords: torch.Tensor):
+def resize(size: Tuple[int, int], image: Image.Image, spacing: torch.Tensor, *coords: torch.Tensor):
     """
 
     :param size: [height, width]，height对应纵坐标，width对应横坐标
@@ -163,7 +162,7 @@ def resize(size: typing.Tuple[int, int], image: Image.Image, spacing: torch.Tens
     return image, spacing, *coords
 
 
-def rotate_point(points: torch.Tensor, angel: float, center: torch.Tensor) -> torch.Tensor:
+def rotate_point(points: torch.Tensor, angel, center: torch.Tensor) -> torch.Tensor:
     """
     将points绕着center顺时针旋转angel度
     :param points: size of（*， 2）
@@ -178,7 +177,7 @@ def rotate_point(points: torch.Tensor, angel: float, center: torch.Tensor) -> to
         center = center.unsqueeze(0)
     cos = math.cos(angel)
     sin = math.sin(angel)
-    rotate_mat = torch.tensor([[cos, -sin], [sin, cos]], dtype=torch.float32)
+    rotate_mat = torch.tensor([[cos, -sin], [sin, cos]], dtype=torch.float32, device=points.device)
     output = points - center
     output = torch.matmul(output, rotate_mat)
     return output + center

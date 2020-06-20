@@ -1,3 +1,4 @@
+import math
 import torch
 
 
@@ -23,12 +24,15 @@ class KeyPointBCELoss:
 
 
 class KeyPointBCELossV2:
+    def __init__(self, lamb=8/math.log(2)):
+        self.lamb = lamb
+
     def __call__(self, pred: torch.Tensor, dist: torch.Tensor, mask: torch.Tensor):
         label = dist.to(pred.device)
 
         pred = pred[mask]
         label = label[mask]
-        label = 1 / label.exp()
+        label = 1 / (label/self.lamb).exp()
 
         loss = torch.nn.BCEWithLogitsLoss(pos_weight=1/label.mean())
         return loss(pred, label)
