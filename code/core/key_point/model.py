@@ -36,7 +36,7 @@ class KeyPointModel(torch.nn.Module):
         images = images.expand(-1, 3, -1, -1)
         feature_maps = self.backbone(images)
         scores = self.fc(feature_maps['0'])
-        scores = interpolate(scores, images.shape[-2:])
+        scores = interpolate(scores, images.shape[-2:], mode='bilinear', align_corners=True)
         return scores
 
     def _inference(self, heatmaps):
