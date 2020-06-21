@@ -1,6 +1,6 @@
 import math
 import random
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 import torch
 import torchvision.transforms.functional as tf
@@ -19,7 +19,8 @@ class KeyPointDataSet:
                  prob_rotate: float,
                  max_angel: float,
                  num_rep: int,
-                 prob_reverse: float):
+                 prob_reverse: float,
+                 size: Tuple[int, int]):
         self.images = []
         self.spacings = []
         self.key_points = []
@@ -29,6 +30,7 @@ class KeyPointDataSet:
         self.max_angel = max_angel
         self.num_rep = num_rep
         self.prob_reverse = prob_reverse
+        self.size = size
 
         self.max_width = -math.inf
         self.max_height = -math.inf
@@ -39,7 +41,6 @@ class KeyPointDataSet:
             key_point = torch.cat([_[:, :2] for _ in v], dim=0)
             image, spacing = images[k], spacings[k]
             mask = (key_point != PADDING_VALUE).any(dim=1)
-            # mask = mask.reshape(mask.size(0), 1, 1)
             self.images.append(image)
             self.spacings.append(spacing)
             self.key_points.append(key_point)
@@ -58,10 +59,14 @@ class KeyPointDataSet:
         return self.images[i], self.spacings[i], self.key_points[i], self.masks[i]
 
     def collate_fn(self, data):
-        if self.random_resize:
-            size = (random.randint(self.min_width, self.max_width), random.randint(self.min_height, self.max_height))
+        if self.size is not None:
+            size = self.size
+        elif self.random_resize:
+            size = (random.randint(self.min_width, self.max_width) // 2 * 2,
+                    random.randint(self.min_height, self.max_height) // 2 * 2)
         else:
             size = None
+
         images, distmaps, masks = [], [], []
         for image, spacing, coord, mask in data:
             if size is not None:
@@ -90,8 +95,8 @@ class KeyPointDataSet:
 
 class KeyPointDataLoader(DataLoader):
     def __init__(self, images, spacings, annotation, batch_size, num_workers=0, random_resize=False, prob_rotate=False,
-                 max_angel=0, num_rep=1, prob_reverse=0):
+                 max_angel=0, num_rep=1, prob_reverse=0, size=None, pin_memory=True):
         dataset = KeyPointDataSet(images, spacings, annotation, random_resize=random_resize, prob_rotate=prob_rotate,
-                                  max_angel=max_angel, num_rep=num_rep, prob_reverse=prob_reverse)
+                                  max_angel=max_angel, num_rep=num_rep, prob_reverse=prob_reverse, size=size)
         super().__init__(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers,
-                         pin_memory=True, collate_fn=dataset.collate_fn)
+                         pin_memory=pin_memory, collate_fn=dataset.collate_fn)
