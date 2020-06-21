@@ -28,7 +28,7 @@ class KeyPointModel(torch.nn.Module):
             return self.loss(scores, labels, masks),
         else:
             heatmaps = scores.sigmoid()
-            return self._inference(heatmaps),
+            return self.spinal_model(heatmaps),
 
     def cal_scores(self, images):
         images = images.to(self.pixel_mean.device)
@@ -38,19 +38,6 @@ class KeyPointModel(torch.nn.Module):
         scores = self.fc(feature_maps['0'])
         scores = interpolate(scores, images.shape[-2:], mode='bilinear', align_corners=True)
         return scores
-
-    def _inference(self, heatmaps):
-        size = heatmaps.size()
-        flatten = heatmaps.flatten(start_dim=2)
-        max_indices = torch.argmax(flatten, dim=-1)
-        height_indices = max_indices.flatten() // size[3]
-        width_indices = max_indices.flatten() % size[3]
-        preds = torch.stack([width_indices, height_indices], dim=1)
-        preds = preds.reshape(flatten.shape[0], flatten.shape[1], 2)
-        if self.spinal_model is not None:
-            preds = [self.spinal_model.correct_prediction(preds[i], heatmaps[i]) for i in range(preds.shape[0])]
-            preds = torch.stack(preds, dim=0)
-        return preds
 
 
 class UpSampleBlock(torch.nn.Module):

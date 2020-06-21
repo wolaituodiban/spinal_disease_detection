@@ -53,6 +53,20 @@ class SpinalModel:
         self.scale_range = scale_range
         self.max_angel = max_angel
 
+    def __call__(self, heatmaps):
+        size = heatmaps.size()
+        flatten = heatmaps.flatten(start_dim=2)
+        max_indices = torch.argmax(flatten, dim=-1)
+        height_indices = max_indices.flatten() // size[3]
+        width_indices = max_indices.flatten() % size[3]
+        # 粗略估计
+        preds = torch.stack([width_indices, height_indices], dim=1)
+        preds = preds.reshape(flatten.shape[0], flatten.shape[1], 2)
+        # 修正
+        preds = [self.correct_prediction(preds[i], heatmaps[i]) for i in range(preds.shape[0])]
+        preds = torch.stack(preds, dim=0)
+        return preds
+
     def transform_templates(self, width, height, pred_points: torch.Tensor):
         """
         pred_points: (num_points, 2)
@@ -144,3 +158,5 @@ class SpinalModel:
 
         max_idx = torch.argmax(scores)
         return candidates[max_idx]
+
+
