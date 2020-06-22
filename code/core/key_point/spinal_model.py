@@ -28,9 +28,9 @@ class SpinalModel:
     def __init__(self,
                  images: Dict[Any, Image.Image],
                  annotations: Dict[Any, Tuple[torch.Tensor, torch.Tensor]],
-                 num_candidates=1000,
-                 num_selected_templates=10,
-                 scale_range: Tuple[float, float] = (0.8, 1.2),
+                 num_candidates=128,
+                 num_selected_templates=8,
+                 scale_range: Tuple[float, float] = (0.9, 1.1),
                  max_angel=10,
                  max_translation: float = 0.05):
         self.templates = []
