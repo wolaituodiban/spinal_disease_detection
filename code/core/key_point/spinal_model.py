@@ -1,9 +1,8 @@
 import math
-import random
 from typing import Any, Dict, Tuple
 import torch
 from PIL import Image
-from ..data_utils import rotate_point
+from ..data_utils import rotate_point, rotate_batch
 
 
 def cal_vertical_angle(x, y):
@@ -19,7 +18,25 @@ def cal_vertical_angle(x, y):
     return torch.atan((lamb - xx) / xy) / math.pi * 180
 
 
-class SpinalModel:
+class SpinalModelBase:
+    def __call__(self, heatmaps: torch.Tensor):
+        """
+
+        :param heatmaps: (num_batch, num_points, height, width)
+        :return: (num_batch, num_points, 2)
+        """
+        size = heatmaps.size()
+        flatten = heatmaps.flatten(start_dim=2)
+        max_indices = torch.argmax(flatten, dim=-1)
+        height_indices = max_indices.flatten() // size[3]
+        width_indices = max_indices.flatten() % size[3]
+        # 粗略估计
+        preds = torch.stack([width_indices, height_indices], dim=1)
+        preds = preds.reshape(flatten.shape[0], flatten.shape[1], 2)
+        return preds
+
+
+class SpinalModel(SpinalModelBase):
     """
     通过对脊柱模板的伸缩,平移,旋转和线性组合,生成候选脊柱坐标
     """
@@ -54,20 +71,13 @@ class SpinalModel:
         self.max_angel = max_angel
 
     def __call__(self, heatmaps):
-        size = heatmaps.size()
-        flatten = heatmaps.flatten(start_dim=2)
-        max_indices = torch.argmax(flatten, dim=-1)
-        height_indices = max_indices.flatten() // size[3]
-        width_indices = max_indices.flatten() % size[3]
-        # 粗略估计
-        preds = torch.stack([width_indices, height_indices], dim=1)
-        preds = preds.reshape(flatten.shape[0], flatten.shape[1], 2)
+        preds = super().__call__(heatmaps)
         # 修正
         preds = [self.correct_prediction(preds[i], heatmaps[i]) for i in range(preds.shape[0])]
         preds = torch.stack(preds, dim=0)
         return preds
 
-    def transform_templates(self, width, height, pred_points: torch.Tensor):
+    def transform_templates(self, width, height, pred_points: torch.Tensor) -> torch.Tensor:
         """
         pred_points: (num_points, 2)
         return: (num_templates, num_points, 2)
@@ -84,31 +94,43 @@ class SpinalModel:
         templates += pred_points.mean(dim=0, keepdim=True)
         return templates
 
-    def generate_one_candidate(self, width, height, templates):
+    def linear_combination(self, templates: torch.Tensor) -> torch.Tensor:
         """
-
-        :param width: int
-        :param height: int
-        :param templates: (num_points, 2)
-        :return:
+        
+        :param templates: (num_templates, num_points, 2) 
+        :return: (num_candidates, num_points, 2)
         """
-        selected_templates = templates[torch.randint(0, templates.shape[0], [self.num_selected_templates, ])]
-        weights = torch.rand(self.num_selected_templates).to(templates.device)
+        indices = torch.randint(0, templates.shape[0], [self.num_candidates, self.num_selected_templates])
+        selected_templates = templates[indices]
+        weights = torch.rand(indices.shape).to(templates.device)
         weights = torch.softmax(weights, dim=-1)
-        weights = weights.reshape(-1, 1, 1)
-        candidate = (weights * selected_templates).sum(dim=0)
-        centor = candidate.mean(dim=0, keepdim=True)
+        weights = weights.unsqueeze(dim=-1).unsqueeze(dim=-1)
+        return (weights * selected_templates).sum(dim=1)
+    
+    def transform_candidates(self, width, height, candidates: torch.Tensor) -> torch.Tensor:
+        """
+        
+        :param width: 
+        :param height: 
+        :param candidates: (num_candidates, num_points, 2)
+        :return: (num_candidates, num_selected_templates, num_points, 2) 
+        """
+        centers = candidates.mean(dim=1).to(candidates.device)
+        angels = torch.randint(-self.max_angel, self.max_angel, candidates.shape[:1]).to(candidates.device)
         # 伸缩
-        scale = random.random() * (self.scale_range[1] - self.scale_range[0]) + self.scale_range[0]
-        candidate *= scale
+        scales = torch.rand(candidates.shape[0]).to(candidates.device)
+        scales = scales * (self.scale_range[1] - self.scale_range[0]) + self.scale_range[0]
+        scales = scales.unsqueeze(dim=-1).unsqueeze(dim=-1)
+        output = candidates * scales
         # 旋转
-        angel = random.randint(-self.max_angel, self.max_angel)
-        candidate = rotate_point(candidate, angel, centor)
+
+        output = rotate_batch(output, angels, centers)
         # 平移
-        centor[0, 0] += (random.random() - 0.5) * 2 * self.max_translation * width
-        centor[0, 1] += (random.random() - 0.5) * 2 * self.max_translation * height
-        candidate += centor - candidate.mean(dim=0, keepdim=True)
-        return candidate
+        shift = (torch.rand(centers.shape, device=candidates.device) - 0.5) * 2 * self.max_translation
+        shift *= torch.tensor([[width, height]], device=candidates.device)
+        centers += shift
+        output += centers.unsqueeze(1) - output.mean(dim=1, keepdim=True)
+        return output
 
     def generate_candidates(self, width, height, pred_points: torch.Tensor):
         """
@@ -119,9 +141,9 @@ class SpinalModel:
         :return: (num_candidates, num_points, 2)
         """
         templates = self.transform_templates(width, height, pred_points)
-        candidates = [self.generate_one_candidate(width, height, templates)
-                      for _ in range(self.num_candidates)]
-        candidates = torch.stack(candidates, dim=0).long()
+        candidates = self.linear_combination(templates)
+        candidates = self.transform_candidates(width, height, candidates)
+        candidates = candidates.long()
         # 防止越界
         candidates[:, :, 0] = torch.clamp(candidates[:, :, 0], 0, width - 1)
         candidates[:, :, 1] = torch.clamp(candidates[:, :, 1], 0, height - 1)

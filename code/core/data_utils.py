@@ -183,6 +183,27 @@ def rotate_point(points: torch.Tensor, angel, center: torch.Tensor) -> torch.Ten
     return output + center
 
 
+def rotate_batch(points: torch.Tensor, angels: torch.Tensor, centers: torch.Tensor) -> torch.Tensor:
+    """
+    将一个batch的点，按照不同的角度和中心转旋
+    :param points: (num_batch, num_points, 2)
+    :param angels: (num_batch,)
+    :param centers: (num_batch, 2)
+    :return:
+    """
+    centers = centers.unsqueeze(1)
+    output = points - centers
+
+    angels = angels * math.pi / 180
+    cos = angels.cos()
+    sin = angels.sin()
+    rotate_mats = torch.stack([cos, sin, -sin, cos], dim=1).reshape(angels.shape[0], 1, 2, 2)
+    output = output.unsqueeze(-1)
+    output = output * rotate_mats
+    output = output.sum(dim=-1)
+    return output + centers
+
+
 def rotate(image: Image.Image, points: torch.Tensor, angel: int) -> (Image.Image, torch.Tensor):
     center = torch.tensor(image.size, dtype=torch.float32) / 2
     return tf.rotate(image, angel), rotate_point(points, angel, center)
