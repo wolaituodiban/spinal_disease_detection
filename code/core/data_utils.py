@@ -66,18 +66,18 @@ def get_spacing(metainfos: Dict[Tuple[str, str, str], dict]) -> Dict[Tuple[str, 
     return output
 
 
-with open(os.path.join(os.path.dirname(__file__), 'json_files/spinal_vertebra_id.json'), 'r') as file:
+with open(os.path.join(os.path.dirname(__file__), 'static_files/spinal_vertebra_id.json'), 'r') as file:
     SPINAL_VERTEBRA_ID = json.load(file)
 
-with open(os.path.join(os.path.dirname(__file__), 'json_files/spinal_disc_id.json'), 'r') as file:
+with open(os.path.join(os.path.dirname(__file__), 'static_files/spinal_disc_id.json'), 'r') as file:
     SPINAL_DISC_ID = json.load(file)
 
 assert set(SPINAL_VERTEBRA_ID.keys()).isdisjoint(set(SPINAL_DISC_ID.keys()))
 
-with open(os.path.join(os.path.dirname(__file__), 'json_files/spinal_vertebra_disease.json'), 'r') as file:
+with open(os.path.join(os.path.dirname(__file__), 'static_files/spinal_vertebra_disease.json'), 'r') as file:
     SPINAL_VERTEBRA_DISEASE_ID = json.load(file)
 
-with open(os.path.join(os.path.dirname(__file__), 'json_files/spinal_disc_disease.json'), 'r') as file:
+with open(os.path.join(os.path.dirname(__file__), 'static_files/spinal_disc_disease.json'), 'r') as file:
     SPINAL_DISC_DISEASE_ID = json.load(file)
 
 

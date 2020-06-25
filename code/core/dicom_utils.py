@@ -39,7 +39,7 @@ def dicom2array(dcm_path):
     return img_x
 
 
-with open(os.path.join(os.path.dirname(__file__), 'json_files/dicom_tag.json'), 'r') as file:
+with open(os.path.join(os.path.dirname(__file__), 'static_files/dicom_tag.json'), 'r') as file:
     DICOM_TAG = json.load(file, object_hook=OrderedDict)
 
 
