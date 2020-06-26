@@ -81,4 +81,17 @@ class Series(list):
         """
         return ((coord.unsqueeze(-2) - self.image_positions) * self.unit_normal_vectors).sum(-1).abs()
 
+    def k_nearest(self, coord: torch.Tensor, k):
+        """
+
+        :param coord: 人坐标系坐标，Nx3的矩阵或者长度为3的向量
+        :param k:
+        :return:
+        """
+        distance = self.point_distance(coord)
+        indices = torch.argsort(distance, dim=-1)
+        if len(indices.shape) == 1:
+            return [[self[i] for i in indices[:k]]]
+        else:
+            return [[self[i] for i in row[:k]] for row in indices]
 

@@ -111,6 +111,10 @@ class DICOM:
 
     @property
     def size(self):
+        """
+
+        :return: width and height
+        """
         if self.image is None:
             return None
         else:

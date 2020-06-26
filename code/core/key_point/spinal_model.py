@@ -18,8 +18,8 @@ def cal_vertical_angle(x, y):
     return torch.atan((lamb - xx) / xy) / math.pi * 180
 
 
-class SpinalModelBase:
-    def __call__(self, heatmaps: torch.Tensor):
+class SpinalModelBase(torch.nn.Module):
+    def forward(self, heatmaps: torch.Tensor):
         """
 
         :param heatmaps: (num_batch, num_points, height, width)
@@ -50,7 +50,8 @@ class SpinalModel(SpinalModelBase):
                  scale_range: Tuple[float, float] = (0.9, 1.1),
                  max_angel=10,
                  max_translation: float = 0.05):
-        self.templates = []
+        super().__init__()
+        templates = []
         for k, annotation in annotations.items():
             width, height = images[k].size
             key_point = torch.cat([coord[:, :2] for coord in annotation], dim=0)
@@ -62,33 +63,33 @@ class SpinalModel(SpinalModelBase):
             v_angel = cal_vertical_angle(key_point[:, 0], key_point[:, 1])
             # 旋转坐标，使得拟合直线与纵坐标重合
             key_point = rotate_point(key_point, v_angel, torch.zeros(2))
-            self.templates.append(key_point)
-        self.templates = torch.stack(self.templates)
+            templates.append(key_point)
+        self.register_buffer('templates', torch.stack(templates))
         self.num_candidates = num_candidates
         self.num_selected_templates = num_selected_templates
         self.max_translation = max_translation
         self.scale_range = scale_range
         self.max_angel = max_angel
 
-    def __call__(self, heatmaps):
-        preds = super().__call__(heatmaps)
+    def forward(self, heatmaps):
+        preds = super().forward(heatmaps)
         # 修正
+        preds = preds.to(device=self.templates.device, dtype=torch.float32)
         preds = [self.correct_prediction(preds[i], heatmaps[i]) for i in range(preds.shape[0])]
         preds = torch.stack(preds, dim=0)
-        return preds
+        return preds.to(device=heatmaps.device)
 
     def transform_templates(self, width, height, pred_points: torch.Tensor) -> torch.Tensor:
         """
         pred_points: (num_points, 2)
         return: (num_templates, num_points, 2)
         """
-        pred_points = pred_points.to(self.templates.dtype)
-        v_angel = cal_vertical_angle(pred_points[:, 0], pred_points[:, 1])
-        templates = self.templates.clone().to(v_angel.device)
         # 伸缩
-        templates[:, :, 0] *= width / self.STANDARD_SIZE
-        templates[:, :, 1] *= height / self.STANDARD_SIZE
+        ratio = torch.tensor([width / self.STANDARD_SIZE, height / self.STANDARD_SIZE], device=self.templates.device)
+        templates = self.templates * ratio
+
         # 旋转
+        v_angel = cal_vertical_angle(pred_points[:, 0], pred_points[:, 1])
         templates = rotate_point(templates, -v_angel, torch.zeros(2, device=v_angel.device))
         # 平移
         templates += pred_points.mean(dim=0, keepdim=True)
@@ -102,7 +103,7 @@ class SpinalModel(SpinalModelBase):
         """
         indices = torch.randint(0, templates.shape[0], [self.num_candidates, self.num_selected_templates])
         selected_templates = templates[indices]
-        weights = torch.rand(indices.shape).to(templates.device)
+        weights = torch.rand(indices.shape, device=templates.device)
         weights = torch.softmax(weights, dim=-1)
         weights = weights.unsqueeze(dim=-1).unsqueeze(dim=-1)
         return (weights * selected_templates).sum(dim=1)
@@ -115,10 +116,10 @@ class SpinalModel(SpinalModelBase):
         :param candidates: (num_candidates, num_points, 2)
         :return: (num_candidates, num_selected_templates, num_points, 2) 
         """
-        centers = candidates.mean(dim=1).to(candidates.device)
-        angels = torch.randint(-self.max_angel, self.max_angel, candidates.shape[:1]).to(candidates.device)
+        centers = candidates.mean(dim=1)
+        angels = torch.randint(-self.max_angel, self.max_angel, candidates.shape[:1], device=candidates.device)
         # 伸缩
-        scales = torch.rand(candidates.shape[0]).to(candidates.device)
+        scales = torch.rand(candidates.shape[0], device=candidates.device)
         scales = scales * (self.scale_range[1] - self.scale_range[0]) + self.scale_range[0]
         scales = scales.unsqueeze(dim=-1).unsqueeze(dim=-1)
         output = candidates * scales

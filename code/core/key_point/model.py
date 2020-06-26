@@ -19,6 +19,10 @@ class KeyPointModel(torch.nn.Module):
         self.spinal_model = spinal_model
         self.loss = loss
 
+    @property
+    def out_channels(self):
+        return self.backbone.out_channels
+
     def set_spinal_model(self, spinal_model: SpinalModel):
         self.spinal_model = spinal_model
 
@@ -30,11 +34,15 @@ class KeyPointModel(torch.nn.Module):
             heatmaps = scores.sigmoid()
             return self.spinal_model(heatmaps),
 
-    def cal_scores(self, images):
+    def cal_feature_maps(self, images):
         images = images.to(self.pixel_mean.device)
         images = (images - self.pixel_mean) / self.pixel_std
         images = images.expand(-1, 3, -1, -1)
         feature_maps = self.backbone(images)
+        return feature_maps
+
+    def cal_scores(self, images):
+        feature_maps = self.cal_feature_maps(images)
         scores = self.fc(feature_maps['0'])
         scores = interpolate(scores, images.shape[-2:], mode='bilinear', align_corners=True)
         return scores
