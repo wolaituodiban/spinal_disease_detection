@@ -65,13 +65,11 @@ class Series(list):
 
     @property
     def study_uid(self):
-        study_uid_counter = Counter([d.study_uid for d in self])
-        return study_uid_counter.most_common(1)[0][0]
+        return self[0].study_uid
 
     @property
     def series_uid(self):
-        study_uid_counter = Counter([d.study_uid for d in self])
-        return study_uid_counter.most_common(1)[0][0]
+        return self[0].series_uid
 
     def point_distance(self, coord: torch.Tensor):
         """

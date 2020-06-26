@@ -55,22 +55,29 @@ class UpSampleBlock(torch.nn.Module):
 
 
 class KeyPointModelV2(KeyPointModel):
-    def __init__(self, backbone: BackboneWithFPN, num_points: int, pixel_mean, pixel_std,
-                 loss, spinal_model: SpinalModel = None, dropout=0.1):
-        super().__init__(backbone, num_points, pixel_mean, pixel_std, loss, spinal_model, dropout)
-        channels = self.backbone.out_channels
-        self.up_sample = torch.nn.Sequential(
-            torch.nn.ConvTranspose2d(channels, channels, 3, stride=2, padding=1, output_padding=1),
-            torch.nn.BatchNorm2d(channels),
-            torch.nn.ReLU()
-        )
+    """
+    没用
+    """
+    def forward(self, images, labels=None, masks=None):
+        scores = self.cal_scores(images)
+        if self.training:
+            if self.loss is None:
+                return scores
+            else:
+                return self.loss(scores, labels, masks),
+        else:
+            return self.spinal_model(scores),
 
     def cal_scores(self, images):
         images = images.to(self.pixel_mean.device)
         images = (images - self.pixel_mean) / self.pixel_std
         images = images.expand(-1, 3, -1, -1)
         feature_maps = self.backbone(images)
-        feature_maps = self.up_sample(feature_maps['0'])
-        scores = self.fc(feature_maps)
-        scores = interpolate(scores, images.shape[-2:], mode='bilinear', align_corners=True)
+        scores = self.fc(feature_maps['0'])
+        scores = interpolate(scores, images.shape[-2:], mode='bilinear', align_corners=True).sigmoid_()
+        # 伪softmax
+        background = 1 - scores.max(dim=1, keepdim=True)[0]
+        scores = torch.cat([scores, background], dim=1)
+        scores = torch.log(scores / (1 - scores))
+        scores = scores.softmax(dim=1)[:, :-1]
         return scores

@@ -48,5 +48,19 @@ def dicom_metainfo_v2(dicm_path: str) -> dict:
     return {k: v for k, v in zip(DICOM_TAG.keys(), metainfo)}
 
 
+def dicom_metainfo_v3(dicom_path: str) -> (dict, str):
+    metainfo = {}
+    error_msg = ''
+    for k, v in DICOM_TAG.items():
+        try:
+            temp = dicom_metainfo(dicom_path, [v])[0]
+
+        except RuntimeError as e:
+            temp = None
+            error_msg += str(e)
+        metainfo[k] = temp
+    return metainfo, error_msg
+
+
 def read_one_dcm(dcm_path):
     return dicom_metainfo_v2(dcm_path), dicom2array(dcm_path)

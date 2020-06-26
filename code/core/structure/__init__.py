@@ -1,2 +1,3 @@
 from .dicom import DICOM
-from .study import Study
+from .series import Series
+from .study import Study, construct_studies

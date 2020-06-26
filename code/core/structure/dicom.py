@@ -1,7 +1,8 @@
+import numpy as np
 import torch
 import torchvision.transforms.functional as tf
 from PIL import Image
-from ..dicom_utils import dicom_metainfo_v2, dicom2array
+from ..dicom_utils import dicom_metainfo_v3, dicom2array
 
 
 def str2tensor(s: str) -> torch.Tensor:
@@ -43,18 +44,37 @@ class DICOM:
     """
 
     def __init__(self, file_path):
-        metainfo = dicom_metainfo_v2(file_path)
-        self.study_uid: str = metainfo['studyUid']
-        self.series_uid: str = metainfo['seriesUid']
-        self.instance_uid: str = metainfo['instanceUid']
-        self.series_description: str = metainfo['seriesDescription']
+        self.file_path = file_path
+        metainfo, msg = dicom_metainfo_v3(file_path)
+        self.error_msg = msg
+        self.study_uid: str = metainfo['studyUid'] or ''
+        self.series_uid: str = metainfo['seriesUid'] or ''
+        self.instance_uid: str = metainfo['instanceUid'] or ''
+        self.series_description: str = metainfo['seriesDescription'] or ''
 
-        self.pixel_spacing = str2tensor(metainfo['pixelSpacing'])
-        self.image_position = str2tensor(metainfo['imagePosition'])
-        self.image_orientation = unit_vector(str2tensor(metainfo['imageOrientation']).reshape(2, 3))
-        self.unit_normal_vector = unit_normal_vector(self.image_orientation)
+        if metainfo['pixelSpacing'] is None:
+            self.pixel_spacing = torch.full([2, ], fill_value=np.nan)
+        else:
+            self.pixel_spacing = str2tensor(metainfo['pixelSpacing'])
 
-        self.image: Image.Image = tf.to_pil_image(dicom2array(file_path))
+        if metainfo['imagePosition'] is None:
+            self.image_position = torch.full([3, ], fill_value=np.nan)
+        else:
+            self.image_position = str2tensor(metainfo['imagePosition'])
+
+        if metainfo['imageOrientation'] is None:
+            self.image_orientation = torch.full([2, 3], fill_value=np.nan)
+            self.unit_normal_vector = torch.full([3, ], fill_value=np.nan)
+        else:
+            self.image_orientation = unit_vector(
+                str2tensor(metainfo['imageOrientation']).reshape(2, 3))
+            self.unit_normal_vector = unit_normal_vector(self.image_orientation)
+
+        try:
+            self.image: Image.Image = tf.to_pil_image(dicom2array(file_path))
+        except RuntimeError as e:
+            self.error_msg += str(e)
+            self.image = None
 
     @property
     def t_type(self):
@@ -67,7 +87,9 @@ class DICOM:
 
     @property
     def plane(self):
-        if torch.matmul(self.unit_normal_vector, torch.tensor([0., 0., 1.])).abs() > 0.75:
+        if torch.isnan(self.unit_normal_vector).all():
+            return None
+        elif torch.matmul(self.unit_normal_vector, torch.tensor([0., 0., 1.])).abs() > 0.75:
             # 轴状位，水平切开
             return 'transverse'
         elif torch.matmul(self.unit_normal_vector, torch.tensor([1., 0., 0.])).abs() > 0.75:
@@ -82,11 +104,17 @@ class DICOM:
 
     @property
     def mean(self):
-        return tf.to_tensor(self.image).mean()
+        if self.image is None:
+            return None
+        else:
+            return tf.to_tensor(self.image).mean()
 
     @property
     def size(self):
-        return self.image.size
+        if self.image is None:
+            return None
+        else:
+            return self.image.size
 
     def pixel_coord2human_coord(self, coord: torch.Tensor) -> torch.Tensor:
         """
