@@ -5,3 +5,6 @@
 *.idea
 *.pdf
 __pycache__
+data
+models
+user_data

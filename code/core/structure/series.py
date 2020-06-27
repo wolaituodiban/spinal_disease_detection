@@ -81,7 +81,7 @@ class Series(list):
         """
         return ((coord.unsqueeze(-2) - self.image_positions) * self.unit_normal_vectors).sum(-1).abs()
 
-    def k_nearest(self, coord: torch.Tensor, k):
+    def k_nearest(self, coord: torch.Tensor, k) -> List[List[DICOM]]:
         """
 
         :param coord: 人坐标系坐标，Nx3的矩阵或者长度为3的向量

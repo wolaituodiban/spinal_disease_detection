@@ -1,3 +1,4 @@
+from typing import Dict, Tuple
 import torch
 from torch.nn.functional import interpolate
 from torchvision.models.detection.backbone_utils import BackboneWithFPN
@@ -11,7 +12,7 @@ class KeyPointModel(torch.nn.Module):
         super().__init__()
         self.backbone = backbone
         self.fc = torch.nn.Sequential(
-            torch.nn.Dropout(dropout),
+            torch.nn.Dropout(dropout, inplace=True),
             torch.nn.Conv2d(backbone.out_channels, num_points, kernel_size=1)
         )
         self.register_buffer('pixel_mean', pixel_mean)
@@ -26,26 +27,35 @@ class KeyPointModel(torch.nn.Module):
     def set_spinal_model(self, spinal_model: SpinalModel):
         self.spinal_model = spinal_model
 
-    def forward(self, images, labels=None, masks=None):
-        scores = self.cal_scores(images)
-        if self.training:
-            return self.loss(scores, labels, masks),
-        else:
-            heatmaps = scores.sigmoid()
-            return self.spinal_model(heatmaps),
-
-    def cal_feature_maps(self, images):
+    def _preprocess(self, images: torch.Tensor) -> torch.Tensor:
         images = images.to(self.pixel_mean.device)
         images = (images - self.pixel_mean) / self.pixel_std
         images = images.expand(-1, 3, -1, -1)
-        feature_maps = self.backbone(images)
-        return feature_maps
+        return images
 
-    def cal_scores(self, images):
-        feature_maps = self.cal_feature_maps(images)
-        scores = self.fc(feature_maps['0'])
+    def cal_resnet(self, images: torch.Tensor) -> torch.Tensor:
+        images = self._preprocess(images)
+        output = self.backbone.body(images)
+        return list(output.values())[-1]
+
+    def cal_feature_map(self, images: torch.Tensor) -> torch.Tensor:
+        images = self._preprocess(images)
+        feature_maps = self.backbone(images)
+        return feature_maps['0']
+
+    def cal_scores(self, images: torch.Tensor) -> (torch.Tensor, Dict[str, torch.Tensor]):
+        feature_map = self.cal_feature_map(images)
+        scores = self.fc(feature_map)
         scores = interpolate(scores, images.shape[-2:], mode='bilinear', align_corners=True)
-        return scores
+        return scores, feature_map
+
+    def forward(self, images, labels=None, masks=None) -> (torch.Tensor,):
+        scores, _ = self.cal_scores(images)
+        if self.training:
+            return self.loss(scores, labels, masks),
+        else:
+            heatmaps = scores.sigmoid_()
+            return self.spinal_model(heatmaps),
 
 
 class UpSampleBlock(torch.nn.Module):
