@@ -84,7 +84,8 @@ class Study(dict):
         :return: (M, k, 1, height, width)
         """
         if self.t2_transverse is None:
-            return None
+            # padding
+            return torch.zeros(pixel_coord.shape[0], k, 1, *size)
         human_coord = self.t2_sagittal_middle_frame.pixel_coord2human_coord(pixel_coord)
         dicoms = self.t2_transverse.k_nearest(human_coord, k)
         images = []

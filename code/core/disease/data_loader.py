@@ -26,7 +26,7 @@ class DisDataSet(Dataset):
             if series_uid in study and instance_uid in study[series_uid].instance_uids:
                 self.annotations.append((k, annotation))
 
-        self.prob_rotate = prob_rotate,
+        self.prob_rotate = prob_rotate
         self.max_angel = max_angel
         self.num_rep = num_rep
         self.sagittal_size = sagittal_size
@@ -36,7 +36,7 @@ class DisDataSet(Dataset):
     def __len__(self):
         return len(self.annotations) * self.num_rep
 
-    def __getitem__(self, item):
+    def __getitem__(self, item) -> (Study, Any, (torch.Tensor, torch.Tensor)):
         item = item % len(self)
         key, annotation = self.annotations[item]
         return self.studies[key[0]], key, annotation
@@ -58,9 +58,6 @@ class DisDataSet(Dataset):
                 pixel_coord, k=self.k_nearest, size=self.transverse_size,
                 prob_rotate=self.prob_rotate, max_angel=self.max_angel
             )
-            # padding
-            if transverse_image is None:
-                transverse_image = torch.zeros(pixel_coord.shape[0], self.k_nearest, 1, *self.transverse_size)
             transverse_images.append(transverse_image)
 
         sagittal_images = torch.stack(sagittal_images, dim=0)

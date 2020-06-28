@@ -4,7 +4,7 @@ from .loss import DisLoss
 from ..structure import Study
 from ..key_point import KeyPointModel
 from ..data_utils import SPINAL_VERTEBRA_ID, SPINAL_VERTEBRA_DISEASE_ID, SPINAL_DISC_ID, SPINAL_DISC_DISEASE_ID
-from ..data_utils import PADDING_VALUE
+from ..data_utils import gen_mask
 
 
 VERTEBRA_POINT_INT2STR = {v: k for k, v in SPINAL_VERTEBRA_ID.items()}
@@ -34,8 +34,8 @@ def extract_point_feature(feature_map: torch.Tensor, coord, size):
 class DiseaseModel(torch.nn.Module):
     def __init__(self, kp_model: KeyPointModel, k_nearest, sagittal_size, transverse_size, agg_method='max',
                  num_vertebra_points=len(SPINAL_VERTEBRA_ID), num_vertebra_diseases=len(SPINAL_VERTEBRA_DISEASE_ID),
-                 num_disc_points=len(SPINAL_DISC_ID), num_disc_diseases=len(SPINAL_DISC_DISEASE_ID),
-                 threshold=0, dropout=0, loss=DisLoss()):
+                 num_disc_points=len(SPINAL_DISC_ID), num_disc_diseases=len(SPINAL_DISC_DISEASE_ID), dropout=0,
+                 loss=DisLoss()):
         super().__init__()
         self.kp_model = kp_model
         self.k_nearest = k_nearest
@@ -79,7 +79,6 @@ class DiseaseModel(torch.nn.Module):
             torch.nn.Linear(self.kp_model.out_channels, num_disc_diseases)
         )
 
-        self.threshold = threshold
         self.loss = loss
 
     @property
@@ -132,78 +131,7 @@ class DiseaseModel(torch.nn.Module):
         disc_score = self.disc_head(disc_feature)
         return vertebra_score, disc_score
 
-    def _inference_sagittal(self, study: Study):
-        """
-
-        :param study:
-        :return: (1, n_points, 2), (1, n_points, out_channels)
-        """
-        kp_frame = study.t2_sagittal_middle_frame
-        sagittal = tf.resize(kp_frame.image, self.sagittal_size)
-        sagittal = tf.to_tensor(sagittal)
-
-        kp_score, sagittal_feature_map = self.kp_model.cal_scores(sagittal.unsqueeze(0))
-        kp_heatmap = kp_score.sigmoid_()
-        pixel_coord = self.kp_model.spinal_model(kp_heatmap)
-
-        sagittal_feature = extract_point_feature(sagittal_feature_map, pixel_coord, sagittal.shape[-2:])
-        return pixel_coord, sagittal_feature
-
-    def _gen_annotation(self, study: Study, coords: torch.Tensor, vertebra_scores, disc_scores) -> dict:
-        """
-
-        :param study:
-        :param coords: Nx2
-        :param vertebra_scores: Vx1
-        :param disc_scores: Dx1
-        :return:
-        """
-        point = []
-        for i, (coord, score) in enumerate(zip(coords[:self.num_vertebra_points], vertebra_scores)):
-            vertebra = torch.where(score > self.threshold)[0].cpu().numpy().tolist()
-            if len(vertebra) == 0:
-                vertebra = 'v1,'
-            else:
-                vertebra = [VERTEBRA_DISEASE_INT2STR[j] for j in vertebra]
-                vertebra = ','.join(vertebra) + ','
-            point.append({
-                'coord': coord.cpu().int().numpy().tolist(),
-                'tag': {
-                    'identification': VERTEBRA_POINT_INT2STR[i],
-                    'vertebra': vertebra
-                }
-            })
-        for i, (coord, score) in enumerate(zip(coords[self.num_vertebra_points:], disc_scores)):
-            disc = torch.where(score > self.threshold)[0].cpu().numpy().tolist()
-            if len(disc) == 0:
-                disc = 'v1,'
-            else:
-                disc = [DISC_DISEASE_INT2STR[j] for j in disc]
-                disc = ','.join(disc) + ','
-            point.append({
-                'coord': coord.cpu().int().numpy().tolist(),
-                'tag': {
-                    'identification': DISC_POINT_INT2STR[i],
-                    'disc': disc
-                }
-            })
-        annotation = {
-            'studyUid': study.study_uid,
-            'data': [
-                {
-                    'instanceUid': study.t2_sagittal_middle_frame.instance_uid,
-                    'seriesUid': study.t2_sagittal_middle_frame.series_uid,
-                    'annotation': [
-                        {
-                            'point': point,
-                        }
-                    ]
-                }
-            ]
-        }
-        return annotation
-
-    def forward(self, sagittal_images, transverse_images, vertebra_labels, disc_labels, distmaps=None):
+    def _train(self, sagittal_images, transverse_images, vertebra_labels, disc_labels, distmaps=None):
         """
 
         :param sagittal_images: (batch_size, 1, height, width)
@@ -225,16 +153,77 @@ class DiseaseModel(torch.nn.Module):
         if distmaps is None or self.kp_loss is None or self.loss is None:
             return kp_score, vertebra_score, disc_score
         else:
-            vertebra_mask = (vertebra_labels[:, :, :2] != PADDING_VALUE).any(dim=-1)
-            disc_mask = (disc_labels[:, :, :2] != PADDING_VALUE).any(dim=-1)
+            vertebra_mask = gen_mask(vertebra_labels)
+            disc_mask = gen_mask(disc_labels)
             coord_mask = torch.cat([vertebra_mask, disc_mask], dim=1)
             kp_loss = self.kp_loss(kp_score, distmaps, coord_mask)
-            vertebra_loss = self.loss(vertebra_score, vertebra_labels[:, :, 2:], vertebra_mask)
-            disc_loss = self.loss(disc_score, disc_labels[:, :, 2:], disc_mask)
+            vertebra_loss = self.loss(vertebra_score, vertebra_labels[:, :, -1], vertebra_mask)
+            disc_loss = self.loss(disc_score, disc_labels[:, :, -1], disc_mask)
             return torch.stack([kp_loss, vertebra_loss, disc_loss], dim=0),
 
-    def inference(self, study: Study) -> dict:
-        pixel_coord, sagittal_feature = self._inference_sagittal(study)
+    def _gen_annotation(self, study: Study, coords: torch.Tensor, vertebra_scores, disc_scores) -> dict:
+        """
+
+        :param study:
+        :param coords: Nx2
+        :param vertebra_scores: Vx1
+        :param disc_scores: Dx1
+        :return:
+        """
+        z_index = study.t2_sagittal.instance_uids[study.t2_sagittal_middle_frame.instance_uid]
+        point = []
+        for i, (coord, score) in enumerate(zip(coords[:self.num_vertebra_points], vertebra_scores)):
+            vertebra = int(torch.argmax(score, dim=-1).cpu())
+            point.append({
+                'coord': coord.cpu().int().numpy().tolist(),
+                'tag': {
+                    'identification': VERTEBRA_POINT_INT2STR[i],
+                    'vertebra': VERTEBRA_DISEASE_INT2STR[vertebra]
+                },
+                'zIndex': z_index
+            })
+        for i, (coord, score) in enumerate(zip(coords[self.num_vertebra_points:], disc_scores)):
+            disc = int(torch.argmax(score, dim=-1).cpu())
+            point.append({
+                'coord': coord.cpu().int().numpy().tolist(),
+                'tag': {
+                    'identification': DISC_POINT_INT2STR[i],
+                    'disc': DISC_DISEASE_INT2STR[disc]
+                },
+                'zIndex': z_index
+            })
+        annotation = {
+            'studyUid': study.study_uid,
+            'data': [
+                {
+                    'instanceUid': study.t2_sagittal_middle_frame.instance_uid,
+                    'seriesUid': study.t2_sagittal_middle_frame.series_uid,
+                    'annotation': [
+                        {
+                            'point': point,
+                        }
+                    ]
+                }
+            ]
+        }
+        return annotation
+
+    def _inference(self, study: Study, to_dict=False):
+        kp_frame = study.t2_sagittal_middle_frame
+        # 将图片放缩到模型设定的大小
+        sagittal = tf.resize(kp_frame.image, self.sagittal_size)
+        sagittal = tf.to_tensor(sagittal)
+
+        kp_score, sagittal_feature_map = self.kp_model.cal_scores(sagittal.unsqueeze(0))
+        kp_heatmap = kp_score.sigmoid_()
+        pixel_coord = self.kp_model.spinal_model(kp_heatmap)
+        sagittal_feature = extract_point_feature(sagittal_feature_map, pixel_coord, sagittal.shape[-2:])
+
+        # 将预测的坐标调整到原来的大小，注意要在extract_point_feature之后变换
+        height_ratio = self.sagittal_size[0] / kp_frame.size[1]
+        width_ratio = self.sagittal_size[1] / kp_frame.size[0]
+        ratio = torch.tensor([width_ratio, height_ratio], device=pixel_coord.device)
+        pixel_coord = (pixel_coord.float() / ratio).round()
 
         transverse = study.t2_transverse_k_nearest(pixel_coord[0].cpu(), self.k_nearest, self.transverse_size)
         transverse = transverse.unsqueeze(0)
@@ -242,4 +231,13 @@ class DiseaseModel(torch.nn.Module):
         transverse_feature = self._cal_transverse_feature(transverse)
         final_feature = self._cal_final_feature(sagittal_feature, transverse_feature)
         vertebra_score, disc_score = self._cal_disease_score(final_feature)
-        return self._gen_annotation(study, pixel_coord[0], vertebra_score[0], disc_score[0])
+        if to_dict:
+            return self._gen_annotation(study, pixel_coord[0], vertebra_score[0], disc_score[0])
+        else:
+            return pixel_coord[0], vertebra_score[0], disc_score[0]
+
+    def forward(self, *args, **kwargs):
+        if self.training:
+            return self._train(*args, **kwargs)
+        else:
+            return self._inference(*args, **kwargs)

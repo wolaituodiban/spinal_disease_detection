@@ -106,9 +106,9 @@ def read_annotation(path) -> Dict[Tuple[str, str, str], Tuple[torch.Tensor, torc
             assert len(data['annotation']) == 1, (study_uid, len(data['annotation']))
             points = data['annotation'][0]['data']['point']
 
-            vertebra_label = torch.full([len(SPINAL_VERTEBRA_ID), 2+len(SPINAL_VERTEBRA_DISEASE_ID)],
+            vertebra_label = torch.full([len(SPINAL_VERTEBRA_ID), 3],
                                         PADDING_VALUE, dtype=torch.long)
-            disc_label = torch.full([len(SPINAL_DISC_ID), 2+len(SPINAL_DISC_DISEASE_ID)],
+            disc_label = torch.full([len(SPINAL_DISC_ID), 3],
                                     PADDING_VALUE, dtype=torch.long)
             for point in points:
                 identification = point['tag']['identification']
@@ -120,7 +120,7 @@ def read_annotation(path) -> Dict[Tuple[str, str, str], Tuple[torch.Tensor, torc
                     for disease in diseases.split(','):
                         if disease in SPINAL_VERTEBRA_DISEASE_ID:
                             disease = SPINAL_VERTEBRA_DISEASE_ID[disease]
-                            vertebra_label[position, 2+disease] = 1
+                            vertebra_label[position, 2] = disease
                 elif identification in SPINAL_DISC_ID:
                     position = SPINAL_DISC_ID[identification]
                     diseases = point['tag']['disc']
@@ -129,7 +129,7 @@ def read_annotation(path) -> Dict[Tuple[str, str, str], Tuple[torch.Tensor, torc
                     for disease in diseases.split(','):
                         if disease in SPINAL_DISC_DISEASE_ID:
                             disease = SPINAL_DISC_DISEASE_ID[disease]
-                            disc_label[position, 2+disease] = 1
+                            disc_label[position, 2] = disease
                 elif identification in non_hit_count:
                     non_hit_count[identification] += 1
                 else:
@@ -234,3 +234,7 @@ def gen_distmap(image: torch.Tensor, spacing: torch.Tensor, *gt_coords: torch.Te
         return dists[0]
     else:
         return dists
+
+
+def gen_mask(coord):
+    return (coord.index_select(-1, torch.arange(2)) != PADDING_VALUE).any(dim=-1)
