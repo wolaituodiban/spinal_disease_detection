@@ -37,3 +37,14 @@ def visilize_distmap(image: Union[Image.Image, torch.Tensor], *distmaps: torch.T
     for distmap in distmaps:
         image[(distmap < max_dist).sum(dim=0).bool().unsqueeze(0)] = 0
     return tf.to_pil_image(image)
+
+
+def visilize_annotation(image, *annotations, _range=10):
+    if isinstance(image, Image.Image):
+        image = tf.to_tensor(image)
+
+    for annotation in annotations:
+        for point in annotation['data'][0]['annotation'][0]['point']:
+            coord = point['coord']
+            image[0, int(coord[1]-_range):int(coord[1]+_range), int(coord[0]-_range):int(coord[0]+_range)] = 0
+    return tf.to_pil_image(image)

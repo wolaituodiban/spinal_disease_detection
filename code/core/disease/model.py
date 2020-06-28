@@ -231,10 +231,14 @@ class DiseaseModel(torch.nn.Module):
         transverse_feature = self._cal_transverse_feature(transverse)
         final_feature = self._cal_final_feature(sagittal_feature, transverse_feature)
         vertebra_score, disc_score = self._cal_disease_score(final_feature)
+
+        pixel_coord = pixel_coord[0]
+        vertebra_score = vertebra_score[0]
+        disc_score = disc_score[0]
         if to_dict:
-            return self._gen_annotation(study, pixel_coord[0], vertebra_score[0], disc_score[0])
+            return self._gen_annotation(study, pixel_coord, vertebra_score, disc_score)
         else:
-            return pixel_coord[0], vertebra_score[0], disc_score[0]
+            return pixel_coord, vertebra_score, disc_score
 
     def forward(self, *args, **kwargs):
         if self.training:

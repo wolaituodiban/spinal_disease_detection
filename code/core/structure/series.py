@@ -23,7 +23,7 @@ class Series(list):
             dim = None
 
         if dim is not None:
-            dicom_list = sorted(dicom_list, key=lambda x: x.image_position[dim])
+            dicom_list = sorted(dicom_list, key=lambda x: x.image_position[dim], reverse=True)
         super().__init__(dicom_list)
         self.instance_uids = {d.instance_uid: i for i, d in enumerate(self)}
         self.unit_normal_vectors = torch.stack([d.unit_normal_vector for d in self], dim=0)

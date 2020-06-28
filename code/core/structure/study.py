@@ -47,6 +47,22 @@ class Study(dict):
                     max_t2_transverse_mean = t2_transverse_mean
                     self.t2_transverse_uid = series_uid
 
+        if self.t2_sagittal_uid is None:
+            for series_uid, series in self.items():
+                if series.plane == 'sagittal':
+                    t2_sagittal_mean = series.mean
+                    if t2_sagittal_mean > max_t2_sagittal_mean:
+                        max_t2_sagittal_mean = t2_sagittal_mean
+                        self.t2_sagittal_uid = series_uid
+
+        if self.t2_transverse_uid is None:
+            for series_uid, series in self.items():
+                if series.plane == 'transverse':
+                    t2_transverse_mean = series.mean
+                    if t2_transverse_mean > max_t2_transverse_mean:
+                        max_t2_transverse_mean = t2_transverse_mean
+                        self.t2_transverse_uid = series_uid
+
     @property
     def study_uid(self):
         return list(self.values())[0].study_uid
@@ -66,10 +82,13 @@ class Study(dict):
             return self[self.t2_transverse_uid]
 
     @property
-    def t2_sagittal_middle_frame(self) -> DICOM:
-        return self.t2_sagittal.middle_frame
+    def t2_sagittal_middle_frame(self) -> Union[None, DICOM]:
+        if self.t2_sagittal is None:
+            return None
+        else:
+            return self.t2_sagittal.middle_frame
 
-    def set_t2_sagittla_middle_frame(self, series_uid, instance_uid):
+    def set_t2_sagittal_middle_frame(self, series_uid, instance_uid):
         self.t2_sagittal_uid = series_uid
         self.t2_sagittal.set_middle_frame(instance_uid)
 
@@ -120,8 +139,20 @@ def construct_studies(data_dir, annotation_path=None):
     if annotation_path is None:
         return studies
     else:
+        counter = {
+            't2_sagittal_not_found': [],
+            't2_sagittal_miss_match': [],
+            't2_sagittal_middle_frame_miss_match': []
+        }
         annotation = read_annotation(annotation_path)
         for k in annotation.keys():
             if k[0] in studies:
-                studies[k[0]].set_t2_sagittla_middle_frame(k[1], k[2])
-        return studies, annotation
+                study = studies[k[0]]
+                if study.t2_sagittal is None:
+                    counter['t2_sagittal_not_found'].append(study.study_uid)
+                elif study.t2_sagittal_uid != k[1]:
+                    counter['t2_sagittal_miss_match'].append(study.study_uid)
+                elif study.t2_sagittal_middle_frame.instance_uid != k[2]:
+                    counter['t2_sagittal_middle_frame_miss_match'].append(study.study_uid)
+                study.set_t2_sagittal_middle_frame(k[1], k[2])
+        return studies, annotation, counter

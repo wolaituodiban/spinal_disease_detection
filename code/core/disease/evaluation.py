@@ -51,10 +51,10 @@ class Evaluator:
 
     def __call__(self, *args, **kwargs):
         self.module.eval()
-        kp_tp = 0
-        tp = 0
-        fp = 0
-        fn = 0
+        kp_tp = self.epsilon
+        tp = self.epsilon
+        fp = self.epsilon
+        fn = self.epsilon
 
         for annotation in tqdm(self.annotations, ascii=True):
             study = self.studies[annotation['studyUid']]
@@ -82,7 +82,7 @@ class Evaluator:
                 else:
                     fn += 1
         kp_accuracy = kp_tp / (kp_tp + fn)
-        d_precision = tp / (tp + fp) + self.epsilon
-        d_recall = tp / (tp + fn) + self.epsilon
+        d_precision = tp / (tp + fp)
+        d_recall = tp / (tp + fn)
         d_f1 = d_precision * d_recall / (d_precision + d_recall)
         return [('disease f1', d_f1), ('key point accuracy', kp_accuracy)]

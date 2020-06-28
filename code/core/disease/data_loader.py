@@ -37,7 +37,7 @@ class DisDataSet(Dataset):
         return len(self.annotations) * self.num_rep
 
     def __getitem__(self, item) -> (Study, Any, (torch.Tensor, torch.Tensor)):
-        item = item % len(self)
+        item = item % len(self.annotations)
         key, annotation = self.annotations[item]
         return self.studies[key[0]], key, annotation
 
