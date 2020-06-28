@@ -60,7 +60,7 @@ class Evaluator:
             study = self.studies[annotation['studyUid']]
             pixel_spacing = study.t2_sagittal_middle_frame.pixel_spacing
             pred = self.module(study, to_dict=True)
-            for point in pred['data'][0]['annotation'][0]['point']:
+            for point in pred['data'][0]['annotation'][0]['data']['point']:
                 identification = point['tag']['identification']
                 if identification not in annotation['annotation']:
                     continue

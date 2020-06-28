@@ -44,7 +44,7 @@ def visilize_annotation(image, *annotations, _range=10):
         image = tf.to_tensor(image)
 
     for annotation in annotations:
-        for point in annotation['data'][0]['annotation'][0]['point']:
+        for point in annotation['data'][0]['annotation'][0]['data']['point']:
             coord = point['coord']
             image[0, int(coord[1]-_range):int(coord[1]+_range), int(coord[0]-_range):int(coord[0]+_range)] = 0
     return tf.to_pil_image(image)

@@ -200,7 +200,9 @@ class DiseaseModel(torch.nn.Module):
                     'seriesUid': study.t2_sagittal_middle_frame.series_uid,
                     'annotation': [
                         {
-                            'point': point,
+                            'data': {
+                                'point': point,
+                            }
                         }
                     ]
                 }

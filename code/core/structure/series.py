@@ -26,9 +26,6 @@ class Series(list):
             dicom_list = sorted(dicom_list, key=lambda x: x.image_position[dim], reverse=True)
         super().__init__(dicom_list)
         self.instance_uids = {d.instance_uid: i for i, d in enumerate(self)}
-        self.unit_normal_vectors = torch.stack([d.unit_normal_vector for d in self], dim=0)
-        self.image_positions = torch.stack([d.image_position for d in self], dim=0)
-
         self.middle_frame_uid = None
 
     def __getitem__(self, item) -> DICOM:
@@ -46,10 +43,10 @@ class Series(list):
         output = 0
         i = 0
         for dicom in self:
-            temp = dicom.mean
-            if temp is None:
+            mean = dicom.mean
+            if mean is None:
                 continue
-            output += i / (i + 1) * output + temp / (i + 1)
+            output = i / (i + 1) * output + mean / (i + 1)
             i += 1
         return output
 
@@ -79,7 +76,7 @@ class Series(list):
         :param coord: 人坐标系坐标，Nx3的矩阵或者长度为3的向量
         :return: 长度为NxM的矩阵或者长度为M的向量，M是序列的长度
         """
-        return ((coord.unsqueeze(-2) - self.image_positions) * self.unit_normal_vectors).sum(-1).abs()
+        return torch.stack([dicom.point_distance(coord) for dicom in self], dim=1).squeeze()
 
     def k_nearest(self, coord: torch.Tensor, k) -> List[List[DICOM]]:
         """

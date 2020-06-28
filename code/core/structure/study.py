@@ -89,6 +89,7 @@ class Study(dict):
             return self.t2_sagittal.middle_frame
 
     def set_t2_sagittal_middle_frame(self, series_uid, instance_uid):
+        assert series_uid in self
         self.t2_sagittal_uid = series_uid
         self.t2_sagittal.set_middle_frame(instance_uid)
 
