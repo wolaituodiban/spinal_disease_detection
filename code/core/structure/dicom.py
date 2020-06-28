@@ -1,7 +1,9 @@
+import random
 import numpy as np
 import torch
 import torchvision.transforms.functional as tf
 from PIL import Image
+from ..data_utils import resize, rotate, gen_distmap
 from ..dicom_utils import dicom_metainfo_v3, dicom2array
 
 
@@ -128,19 +130,41 @@ class DICOM:
         """
         return torch.matmul(coord * self.pixel_spacing, self.image_orientation) + self.image_position
 
-    def point_distance(self, coord: torch.Tensor) -> torch.Tensor:
+    def point_distance(self, human_coord: torch.Tensor) -> torch.Tensor:
         """
         点到图像平面的距离，单位为毫米
-        :param coord: 人坐标系坐标，Nx3的矩阵或者长度为3的向量
+        :param human_coord: 人坐标系坐标，Nx3的矩阵或者长度为3的向量
         :return: 长度为N的向量或者标量
         """
-        return torch.matmul(coord - self.image_position, self.unit_normal_vector).abs()
+        return torch.matmul(human_coord - self.image_position, self.unit_normal_vector).abs()
 
-    def projection(self, coord: torch.Tensor) -> torch.Tensor:
+    def projection(self, human_coord: torch.Tensor) -> torch.Tensor:
         """
         将人坐标系中的点投影到图像上，并输出像素坐标
-        :param coord: 人坐标系坐标，Nx3的矩阵或者长度为3的向量
+        :param human_coord: 人坐标系坐标，Nx3的矩阵或者长度为3的向量
         :return:像素坐标，Nx2的矩阵或者长度为2的向量
         """
-        cos = torch.matmul(coord - self.image_position, self.image_orientation.transpose(0, 1))
+        cos = torch.matmul(human_coord - self.image_position, self.image_orientation.transpose(0, 1))
         return (cos / self.pixel_spacing).round()
+
+    def transform(self, pixel_coord: torch.Tensor,
+                  size=None, prob_rotate=0, max_angel=0) -> (torch.Tensor, torch.Tensor):
+        """
+        返回image tensor和distance map
+        :param pixel_coord:
+        :param size:
+        :param prob_rotate:
+        :param max_angel:
+        :return:
+        """
+        image, pixel_spacing = self.image, self.pixel_spacing
+        if size is not None:
+            image, pixel_spacing, pixel_coord = resize(size, image, pixel_spacing, pixel_coord)
+
+        if max_angel > 0 and random.random() <= prob_rotate:
+            angel = random.randint(-max_angel, max_angel)
+            image, pixel_coord = rotate(image, pixel_coord, angel)
+
+        image = tf.to_tensor(image)
+        distmap = gen_distmap(image, pixel_spacing, pixel_coord)
+        return image, distmap

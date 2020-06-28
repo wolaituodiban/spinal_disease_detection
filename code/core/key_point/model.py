@@ -33,7 +33,7 @@ class KeyPointModel(torch.nn.Module):
         images = images.expand(-1, 3, -1, -1)
         return images
 
-    def cal_resnet(self, images: torch.Tensor) -> torch.Tensor:
+    def cal_backbone(self, images: torch.Tensor) -> torch.Tensor:
         images = self._preprocess(images)
         output = self.backbone.body(images)
         return list(output.values())[-1]
@@ -43,7 +43,7 @@ class KeyPointModel(torch.nn.Module):
         feature_maps = self.backbone(images)
         return feature_maps['0']
 
-    def cal_scores(self, images: torch.Tensor) -> (torch.Tensor, Dict[str, torch.Tensor]):
+    def cal_scores(self, images: torch.Tensor) -> (torch.Tensor, torch.Tensor):
         feature_map = self.cal_feature_map(images)
         scores = self.fc(feature_map)
         scores = interpolate(scores, images.shape[-2:], mode='bilinear', align_corners=True)

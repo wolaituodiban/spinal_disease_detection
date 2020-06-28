@@ -1,9 +1,10 @@
-from typing import Any, List
 import torch
 import torchvision.transforms.functional as tf
+from .loss import DisLoss
 from ..structure import Study
 from ..key_point import KeyPointModel
 from ..data_utils import SPINAL_VERTEBRA_ID, SPINAL_VERTEBRA_DISEASE_ID, SPINAL_DISC_ID, SPINAL_DISC_DISEASE_ID
+from ..data_utils import PADDING_VALUE
 
 
 VERTEBRA_POINT_INT2STR = {v: k for k, v in SPINAL_VERTEBRA_ID.items()}
@@ -16,7 +17,7 @@ def extract_point_feature(feature_map: torch.Tensor, coord, size):
     """
     :param feature_map: (batch_size, channels, height, width)
     :param coord: (batch_size, n_points, 2), width在前，height在后
-    :param size: original height, width
+    :param size: coord对应的图片大小
     :return: (batch_size, n_points, channels)
     """
     ratio = torch.tensor([feature_map.shape[-2] / size[0], feature_map.shape[-1] / size[1]], device=coord.device)
@@ -30,18 +31,11 @@ def extract_point_feature(feature_map: torch.Tensor, coord, size):
     return feature
 
 
-def flatten_list_of_list(ll: List[List[Any]]) -> List[Any]:
-    output = []
-    for _l in ll:
-        output += _l
-    return output
-
-
 class DiseaseModel(torch.nn.Module):
     def __init__(self, kp_model: KeyPointModel, k_nearest, sagittal_size, transverse_size, agg_method='max',
                  num_vertebra_points=len(SPINAL_VERTEBRA_ID), num_vertebra_diseases=len(SPINAL_VERTEBRA_DISEASE_ID),
                  num_disc_points=len(SPINAL_DISC_ID), num_disc_diseases=len(SPINAL_DISC_DISEASE_ID),
-                 threshold=0, dropout=0):
+                 threshold=0, dropout=0, loss=DisLoss()):
         super().__init__()
         self.kp_model = kp_model
         self.k_nearest = k_nearest
@@ -56,9 +50,14 @@ class DiseaseModel(torch.nn.Module):
         self.num_disc_points = num_disc_points
 
         if agg_method == 'max':
-            self.adaptive_pooling = torch.nn.AdaptiveMaxPool1d(self.out_channels)
+            adaptive_pooling = torch.nn.AdaptiveMaxPool1d(self.out_channels)
         else:
-            self.adaptive_pooling = torch.nn.AdaptiveAvgPool1d(self.out_channels)
+            adaptive_pooling = torch.nn.AdaptiveAvgPool1d(self.out_channels)
+
+        self.adaptive_pooling = torch.nn.Sequential(
+            adaptive_pooling,
+            torch.nn.LayerNorm(self.out_channels)
+        )
 
         for name in ['sagittal', 'transverse']:
             bottle_neck = torch.nn.Sequential(
@@ -81,6 +80,7 @@ class DiseaseModel(torch.nn.Module):
         )
 
         self.threshold = threshold
+        self.loss = loss
 
     @property
     def out_channels(self):
@@ -90,17 +90,13 @@ class DiseaseModel(torch.nn.Module):
     def kp_loss(self):
         return self.kp_model.loss
 
-    def _cal_sagittal_feature(self, sagittal: torch.Tensor) -> (torch.Tensor, torch.Tensor):
-        score, feature_map = self.kp_model.cal_scores(sagittal)
-        return score, feature_map
-
     def _cal_transverse_feature(self, transverse: torch.Tensor) -> torch.Tensor:
         """
 
         :param transverse: (batch_size, n_points, k_nearest, 1, height, width)
         :return: (batch_size, n_points, channels)
         """
-        feature = self.kp_model.cal_resnet(transverse.flatten(end_dim=2))
+        feature = self.kp_model.cal_backbone(transverse.flatten(end_dim=2))
         feature = feature.reshape(*transverse.shape[:3], feature.shape[-3], -1)
         if self.agg_method == 'max':
             feature = feature.max(dim=-1)[0]
@@ -143,19 +139,14 @@ class DiseaseModel(torch.nn.Module):
         :return: (1, n_points, 2), (1, n_points, out_channels)
         """
         kp_frame = study.t2_sagittal_middle_frame
-        height_ratio = self.sagittal_size[0] / kp_frame.size[1]
-        width_ratio = self.sagittal_size[1] / kp_frame.size[0]
-
         sagittal = tf.resize(kp_frame.image, self.sagittal_size)
         sagittal = tf.to_tensor(sagittal)
-        kp_score, sagittal_feature = self._cal_sagittal_feature(sagittal.unsqueeze(0))
+
+        kp_score, sagittal_feature_map = self.kp_model.cal_scores(sagittal.unsqueeze(0))
         kp_heatmap = kp_score.sigmoid_()
         pixel_coord = self.kp_model.spinal_model(kp_heatmap)
 
-        ratio = torch.tensor([width_ratio, height_ratio], device=pixel_coord.device)
-        pixel_coord = (pixel_coord.float() / ratio).round()
-
-        sagittal_feature = extract_point_feature(sagittal_feature, pixel_coord, sagittal.shape[-2:])
+        sagittal_feature = extract_point_feature(sagittal_feature_map, pixel_coord, sagittal.shape[-2:])
         return pixel_coord, sagittal_feature
 
     def _gen_annotation(self, study: Study, coords: torch.Tensor, vertebra_scores, disc_scores) -> dict:
@@ -212,35 +203,41 @@ class DiseaseModel(torch.nn.Module):
         }
         return annotation
 
-    def forward(self, sagittal, transverse, vertebra_label, disc_label):
+    def forward(self, sagittal_images, transverse_images, vertebra_labels, disc_labels, distmaps=None):
         """
 
-        :param sagittal: (batch_size, 1, height, width)
-        :param transverse: (batch_size, k_nearest, 1, height, width)
-        :param vertebra_label: (batch_size, num_vertebra_points, 2 + num_vertebra_diseases)
-        :param disc_label: (batch_size, num_disc_points, 2 + num_disc_disease)
+        :param sagittal_images: (batch_size, 1, height, width)
+        :param transverse_images: (batch_size, k_nearest, 1, height, width)
+        :param vertebra_labels: (batch_size, num_vertebra_points, 2 + num_vertebra_diseases)
+        :param disc_labels: (batch_size, num_disc_points, 2 + num_disc_disease)
+        :param distmaps:
         :return:
         """
-        kp_score, feature_map = self._cal_sagittal_feature(sagittal)
+        kp_score, feature_map = self.kp_model.cal_scores(sagittal_images)
 
-        coord = torch.cat([vertebra_label[:, :, 2], disc_label[:, :, 2]], dim=1)
-        sagittal_feature = extract_point_feature(feature_map, coord, sagittal.shape)
+        coord = torch.cat([vertebra_labels[:, :, :2], disc_labels[:, :, :2]], dim=1)
 
-        transverse_feature = self._cal_transverse_feature(transverse)
+        sagittal_feature = extract_point_feature(feature_map, coord, sagittal_images.shape)
+
+        transverse_feature = self._cal_transverse_feature(transverse_images)
         final_feature = self._cal_final_feature(sagittal_feature, transverse_feature)
         vertebra_score, disc_score = self._cal_disease_score(final_feature)
-        return kp_score, vertebra_score, disc_score
+        if distmaps is None or self.kp_loss is None or self.loss is None:
+            return kp_score, vertebra_score, disc_score
+        else:
+            vertebra_mask = (vertebra_labels[:, :, :2] != PADDING_VALUE).any(dim=-1)
+            disc_mask = (disc_labels[:, :, :2] != PADDING_VALUE).any(dim=-1)
+            coord_mask = torch.cat([vertebra_mask, disc_mask], dim=1)
+            kp_loss = self.kp_loss(kp_score, distmaps, coord_mask)
+            vertebra_loss = self.loss(vertebra_score, vertebra_labels[:, :, 2:], vertebra_mask)
+            disc_loss = self.loss(disc_score, disc_labels[:, :, 2:], disc_mask)
+            return torch.stack([kp_loss, vertebra_loss, disc_loss], dim=0),
 
     def inference(self, study: Study) -> dict:
         pixel_coord, sagittal_feature = self._inference_sagittal(study)
-        human_coord = study.t2_sagittal_middle_frame.pixel_coord2human_coord(pixel_coord.cpu())
 
-        transverse = study.t2_transverse.k_nearest(human_coord[0], self.k_nearest)
-        transverse = flatten_list_of_list(transverse)
-        transverse = [tf.to_tensor(tf.resize(dicom.image, self.transverse_size))
-                      for dicom in transverse]
-        transverse = torch.stack(transverse, dim=0)
-        transverse = transverse.reshape(1, -1, self.k_nearest, *transverse.shape[-3:])
+        transverse = study.t2_transverse_k_nearest(pixel_coord[0].cpu(), self.k_nearest, self.transverse_size)
+        transverse = transverse.unsqueeze(0)
 
         transverse_feature = self._cal_transverse_feature(transverse)
         final_feature = self._cal_final_feature(sagittal_feature, transverse_feature)
