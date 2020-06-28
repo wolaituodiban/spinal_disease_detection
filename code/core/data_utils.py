@@ -236,5 +236,5 @@ def gen_distmap(image: torch.Tensor, spacing: torch.Tensor, *gt_coords: torch.Te
         return dists
 
 
-def gen_mask(coord):
-    return (coord.index_select(-1, torch.arange(2)) != PADDING_VALUE).any(dim=-1)
+def gen_mask(coord: torch.Tensor):
+    return (coord.index_select(-1, torch.arange(2, device=coord.device)) != PADDING_VALUE).any(dim=-1)
