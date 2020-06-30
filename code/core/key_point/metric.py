@@ -6,7 +6,7 @@ class KeyPointAcc:
         self.max_dist = max_dist
         self.point = point
 
-    def __call__(self, pred, dist, mask):
+    def __call__(self, vertebra_coords, disc_coords, dist, mask):
         """
 
         :param pred: (batch_size, num_points, 2)
@@ -14,6 +14,7 @@ class KeyPointAcc:
         :param mask: (batch_size, num_points, 1, 1)
         :return:
         """
+        pred = torch.cat([vertebra_coords, disc_coords], dim=1)
         width_indices = pred[:, :, 0].flatten()
         height_indices = pred[:, :, 1].flatten()
         image_indices = torch.arange(pred.shape[0], device=pred.device)
