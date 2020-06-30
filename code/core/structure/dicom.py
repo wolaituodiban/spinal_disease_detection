@@ -1,10 +1,13 @@
 import random
+
+import SimpleITK as sitk
 import numpy as np
 import torch
 import torchvision.transforms.functional as tf
 from PIL import Image
+
 from ..data_utils import resize, rotate, gen_distmap
-from ..dicom_utils import dicom_metainfo_v3, dicom2array
+from ..dicom_utils import DICOM_TAG, dicom2array
 
 
 def str2tensor(s: str) -> torch.Tensor:
@@ -47,35 +50,58 @@ class DICOM:
 
     def __init__(self, file_path):
         self.file_path = file_path
-        metainfo, msg = dicom_metainfo_v3(file_path)
-        self.error_msg = msg
-        self.study_uid: str = metainfo['studyUid'] or ''
-        self.series_uid: str = metainfo['seriesUid'] or ''
-        self.instance_uid: str = metainfo['instanceUid'] or ''
-        self.series_description: str = metainfo['seriesDescription'] or ''
+        self.error_msg = ''
 
-        if metainfo['pixelSpacing'] is None:
+        reader = sitk.ImageFileReader()
+        reader.LoadPrivateTagsOn()
+        reader.SetImageIO('GDCMImageIO')
+        reader.SetFileName(file_path)
+        try:
+            reader.ReadImageInformation()
+        except RuntimeError:
+            pass
+
+        try:
+            self.study_uid = reader.GetMetaData(DICOM_TAG['studyUid'])
+        except RuntimeError:
+            self.study_uid = ''
+
+        try:
+            self.series_uid: str = reader.GetMetaData(DICOM_TAG['seriesUid'])
+        except RuntimeError:
+            self.series_uid = ''
+
+        try:
+            self.instance_uid: str = reader.GetMetaData(DICOM_TAG['instanceUid'])
+        except RuntimeError:
+            self.instance_uid = ''
+
+        try:
+            self.series_description: str = reader.GetMetaData(DICOM_TAG['seriesDescription'])
+        except RuntimeError:
+            self.series_description = ''
+
+        try:
+            self.pixel_spacing = str2tensor(reader.GetMetaData(DICOM_TAG['pixelSpacing']))
+        except RuntimeError:
             self.pixel_spacing = torch.full([2, ], fill_value=np.nan)
-        else:
-            self.pixel_spacing = str2tensor(metainfo['pixelSpacing'])
 
-        if metainfo['imagePosition'] is None:
+        try:
+            self.image_position = str2tensor(reader.GetMetaData(DICOM_TAG['imagePosition']))
+        except RuntimeError:
             self.image_position = torch.full([3, ], fill_value=np.nan)
-        else:
-            self.image_position = str2tensor(metainfo['imagePosition'])
 
-        if metainfo['imageOrientation'] is None:
+        try:
+            self.image_orientation = unit_vector(
+                str2tensor(reader.GetMetaData(DICOM_TAG['imageOrientation'])).reshape(2, 3))
+            self.unit_normal_vector = unit_normal_vector(self.image_orientation)
+        except RuntimeError:
             self.image_orientation = torch.full([2, 3], fill_value=np.nan)
             self.unit_normal_vector = torch.full([3, ], fill_value=np.nan)
-        else:
-            self.image_orientation = unit_vector(
-                str2tensor(metainfo['imageOrientation']).reshape(2, 3))
-            self.unit_normal_vector = unit_normal_vector(self.image_orientation)
 
         try:
             self.image: Image.Image = tf.to_pil_image(dicom2array(file_path))
-        except RuntimeError as e:
-            self.error_msg += str(e)
+        except RuntimeError:
             self.image = None
 
     @property
@@ -167,4 +193,4 @@ class DICOM:
 
         image = tf.to_tensor(image)
         distmap = gen_distmap(image, pixel_spacing, pixel_coord)
-        return image, distmap
+        return image, distmap, pixel_coord.round().long()

@@ -3,6 +3,7 @@ from typing import Any, Dict, Tuple
 import torch
 from torch.utils.data import Dataset, DataLoader
 
+from ..data_utils import gen_mask
 from ..structure import DICOM, Study
 
 
@@ -15,7 +16,8 @@ class DisDataSet(Dataset):
                  num_rep: int,
                  sagittal_size: Tuple[int, int],
                  transverse_size: Tuple[int, int],
-                 k_nearest: int):
+                 k_nearest: int,
+                 max_dist: int):
         self.studies = studies
         self.annotations = []
         for k, annotation in annotations.items():
@@ -32,47 +34,59 @@ class DisDataSet(Dataset):
         self.sagittal_size = sagittal_size
         self.transverse_size = transverse_size
         self.k_nearest = k_nearest
+        self.max_dist = max_dist
 
     def __len__(self):
         return len(self.annotations) * self.num_rep
 
     def __getitem__(self, item) -> (Study, Any, (torch.Tensor, torch.Tensor)):
         item = item % len(self.annotations)
-        key, annotation = self.annotations[item]
-        return self.studies[key[0]], key, annotation
+        key, (v_annotation, d_annotation) = self.annotations[item]
+        return self.studies[key[0]], key, v_annotation, d_annotation
 
     def collate_fn(self, data) -> (Tuple[torch.Tensor], Tuple[None]):
         sagittal_images, transverse_images, vertebra_labels, disc_labels, distmaps = [], [], [], [], []
-        for study, key, annotation in data:
-            vertebra_labels.append(annotation[0])
-            disc_labels.append(annotation[1])
+        v_masks, d_masks = [], []
+        for study, key, v_anno, d_anno in data:
+            v_mask = gen_mask(v_anno)
+            d_mask = gen_mask(d_anno)
+            v_masks.append(v_mask)
+            d_masks.append(d_mask)
 
-            pixel_coord = torch.cat([_[:, :2] for _ in annotation], dim=0)
-            dicom: DICOM = study[key[1]][key[2]]
-            sagittal_image, sagittal_distmap = dicom.transform(
-                pixel_coord, self.sagittal_size, self.prob_rotate, self.max_angel)
-            sagittal_images.append(sagittal_image)
-            distmaps.append(sagittal_distmap)
+            pixel_coord = torch.cat([v_anno[:, :2], d_anno[:, :2]], dim=0)
 
             transverse_image = study.t2_transverse_k_nearest(
-                pixel_coord, k=self.k_nearest, size=self.transverse_size,
+                pixel_coord, k=self.k_nearest, size=self.transverse_size, max_dist=self.max_dist,
                 prob_rotate=self.prob_rotate, max_angel=self.max_angel
             )
             transverse_images.append(transverse_image)
 
+            dicom: DICOM = study[key[1]][key[2]]
+            sagittal_image, distmap, pixel_coord = dicom.transform(
+                pixel_coord, self.sagittal_size, self.prob_rotate, self.max_angel)
+            sagittal_images.append(sagittal_image)
+            distmaps.append(distmap)
+
+            v_label = torch.cat([pixel_coord[:v_anno.shape[0]], v_anno[:, 2:]], dim=-1)
+            d_label = torch.cat([pixel_coord[v_anno.shape[0]:], d_anno[:, 2:]], dim=-1)
+            vertebra_labels.append(v_label)
+            disc_labels.append(d_label)
+
         sagittal_images = torch.stack(sagittal_images, dim=0)
         distmaps = torch.stack(distmaps, dim=0)
         transverse_images = torch.stack(transverse_images, dim=0)
-        vertebra_labels = torch.stack(vertebra_labels)
-        disc_labels = torch.stack(disc_labels)
-        return (sagittal_images, transverse_images, vertebra_labels, disc_labels, distmaps), (None, )
+        vertebra_labels = torch.stack(vertebra_labels, dim=0)
+        disc_labels = torch.stack(disc_labels, dim=0)
+        v_masks = torch.stack(v_masks, dim=0)
+        d_masks = torch.stack(d_masks, dim=0)
+        return (sagittal_images, transverse_images, distmaps, vertebra_labels, disc_labels, v_masks, d_masks), (None, )
 
 
 class DisDataLoader(DataLoader):
     def __init__(self, studies, annotations, batch_size, sagittal_size, transverse_size, k_nearest,
-                 num_workers=0, prob_rotate=False, max_angel=0, num_rep=1, pin_memory=True):
+                 num_workers=0, prob_rotate=False, max_angel=0, max_dist=8, num_rep=1, pin_memory=True):
         dataset = DisDataSet(studies=studies, annotations=annotations, sagittal_size=sagittal_size,
                              transverse_size=transverse_size, k_nearest=k_nearest, prob_rotate=prob_rotate,
-                             max_angel=max_angel, num_rep=num_rep)
+                             max_angel=max_angel, num_rep=num_rep, max_dist=max_dist)
         super().__init__(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers,
                          pin_memory=pin_memory, collate_fn=dataset.collate_fn)

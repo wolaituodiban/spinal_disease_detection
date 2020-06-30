@@ -22,6 +22,7 @@ class Series(list):
         else:
             dim = None
 
+        dicom_list = [dicom for dicom in dicom_list if dicom.plane == self.plane]
         if dim is not None:
             dicom_list = sorted(dicom_list, key=lambda x: x.image_position[dim], reverse=True)
         super().__init__(dicom_list)
@@ -78,17 +79,19 @@ class Series(list):
         """
         return torch.stack([dicom.point_distance(coord) for dicom in self], dim=1).squeeze()
 
-    def k_nearest(self, coord: torch.Tensor, k) -> List[List[DICOM]]:
+    def k_nearest(self, coord: torch.Tensor, k, max_dist) -> List[List[DICOM]]:
         """
 
         :param coord: 人坐标系坐标，Nx3的矩阵或者长度为3的向量
         :param k:
+        :param max_dist: 如果距离大于max dist，那么返回一个None
         :return:
         """
         distance = self.point_distance(coord)
         indices = torch.argsort(distance, dim=-1)
         if len(indices.shape) == 1:
-            return [[self[i] for i in indices[:k]]]
+            return [[self[i] if d < max_dist else None for i, d in zip(indices[:k], distance[:k])]]
         else:
-            return [[self[i] for i in row[:k]] for row in indices]
+            return [[self[i] if d < max_dist else None for i, d in zip(row[:k], row_d[:k])]
+                    for row, row_d in zip(indices, distance)]
 

@@ -41,25 +41,27 @@ class KeyPointModel(torch.nn.Module):
         output = self.backbone.body(images)
         return list(output.values())[-1]
 
-    def pred_coords(self, scores) -> (torch.Tensor, torch.Tensor):
-        heatmaps = scores.sigmoid_()
-        coords = self.spinal_model(heatmaps)
-        vertebra_coords = coords[:, :self.num_vertebra_points]
-        disc_coords = coords[:, self.num_vertebra_points:]
-        return vertebra_coords, disc_coords
-
-    def forward(self, images, distmaps=None, masks=None, return_more=False):
+    def forward(self, images, distmaps=None, masks=None, return_more=False) -> tuple:
         images = self._preprocess(images)
         feature_pyramids = self.backbone(images)
         feature_maps = feature_pyramids['0']
         scores = self.fc(feature_maps)
         scores = interpolate(scores, images.shape[-2:], mode='bilinear', align_corners=True)
         if self.training:
-            loss = self.loss(scores, distmaps, masks)
+            if distmaps is None:
+                loss = None
+            else:
+                loss = self.loss(scores, distmaps, masks)
             if return_more:
-                vertebra_coords, disc_coords = self.pred_coords(scores)
-                return loss, feature_maps, vertebra_coords, disc_coords
+                return loss, scores, feature_maps
             else:
                 return loss,
         else:
-            return self.pred_coords(scores)
+            heat_maps = scores.sigmoid_()
+            coords = self.spinal_model(heat_maps)
+            vertebra_coords = coords[:, :self.num_vertebra_points]
+            disc_coords = coords[:, self.num_vertebra_points:]
+            if return_more:
+                return vertebra_coords, disc_coords, heat_maps, feature_maps
+            else:
+                return vertebra_coords, disc_coords

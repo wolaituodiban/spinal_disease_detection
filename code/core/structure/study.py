@@ -1,5 +1,6 @@
 import os
 import random
+from collections import Counter
 from multiprocessing import Pool, cpu_count
 from typing import Union
 from tqdm import tqdm
@@ -7,21 +8,32 @@ import torch
 from torchvision.transforms import functional as tf
 from .dicom import DICOM
 from .series import Series
-from ..data_utils import read_annotation
+from ..data_utils import read_annotation, resize
 
 
 class Study(dict):
-    def __init__(self, study_dir):
-        with Pool(cpu_count()) as pool:
-            async_results = []
+    def __init__(self, study_dir, multiprocessing=False):
+        if multiprocessing:
+            with Pool(cpu_count()) as pool:
+                async_results = []
+                for dicom_name in os.listdir(study_dir):
+                    dicom_path = os.path.join(study_dir, dicom_name)
+                    async_results.append(pool.apply_async(DICOM, (dicom_path, )))
+
+                dicom_dict = {}
+                for async_result in async_results:
+                    async_result.wait()
+                    dicom = async_result.get()
+                    series_uid = dicom.series_uid
+                    if series_uid not in dicom_dict:
+                        dicom_dict[series_uid] = [dicom]
+                    else:
+                        dicom_dict[series_uid].append(dicom)
+        else:
+            dicom_dict = {}
             for dicom_name in os.listdir(study_dir):
                 dicom_path = os.path.join(study_dir, dicom_name)
-                async_results.append(pool.apply_async(DICOM, (dicom_path, )))
-
-            dicom_dict = {}
-            for async_result in async_results:
-                async_result.wait()
-                dicom = async_result.get()
+                dicom = DICOM(dicom_path)
                 series_uid = dicom.series_uid
                 if series_uid not in dicom_dict:
                     dicom_dict[series_uid] = [dicom]
@@ -65,7 +77,8 @@ class Study(dict):
 
     @property
     def study_uid(self):
-        return list(self.values())[0].study_uid
+        study_uid_counter = Counter([s.study_uid for s in self.values()])
+        return study_uid_counter.most_common(1)[0][0]
 
     @property
     def t2_sagittal(self) -> Union[None, Series]:
@@ -93,7 +106,7 @@ class Study(dict):
         self.t2_sagittal_uid = series_uid
         self.t2_sagittal.set_middle_frame(instance_uid)
 
-    def t2_transverse_k_nearest(self, pixel_coord, k, size, prob_rotate=0, max_angel=0):
+    def t2_transverse_k_nearest(self, pixel_coord, k, size, max_dist, prob_rotate=0, max_angel=0):
         """
 
         :param pixel_coord: (M, 2)
@@ -107,16 +120,21 @@ class Study(dict):
             # padding
             return torch.zeros(pixel_coord.shape[0], k, 1, *size)
         human_coord = self.t2_sagittal_middle_frame.pixel_coord2human_coord(pixel_coord)
-        dicoms = self.t2_transverse.k_nearest(human_coord, k)
+        dicoms = self.t2_transverse.k_nearest(human_coord, k, max_dist)
         images = []
-        for series in dicoms:
+        for point, series in zip(human_coord, dicoms):
             temp = []
             for dicom in series:
-                image = tf.resize(dicom.image, size)
-                if max_angel > 0 and random.random() <= prob_rotate:
-                    angel = random.randint(-max_angel, max_angel)
-                    image = tf.rotate(image, angel)
-                image = tf.to_tensor(image)
+                if dicom is None:
+                    image = torch.zeros(1, *size)
+                else:
+                    projection = dicom.projection(point)
+                    image, _, projection = resize((size[0]*2, size[1]*2), dicom.image, dicom.pixel_spacing, projection)
+                    image = tf.crop(image, int(projection[0]-size[0]//2), int(projection[1]-size[1]//2), size[0], size[1])
+                    if max_angel > 0 and random.random() <= prob_rotate:
+                        angel = random.randint(-max_angel, max_angel)
+                        image = tf.rotate(image, angel)
+                    image = tf.to_tensor(image)
                 temp.append(image)
             temp = torch.stack(temp, dim=0)
             images.append(temp)
@@ -124,17 +142,18 @@ class Study(dict):
         return images
 
 
-def construct_studies(data_dir, annotation_path=None):
+def construct_studies(data_dir, annotation_path=None, mutiprocessing=False):
     """
     方便批量构造study的函数
     :param data_dir: 存放study的文件夹
+    :param mutiprocessing:
     :param annotation_path: 如果有标注，那么根据标注来确定定位帧
     :return:
     """
     studies = {}
     for study_name in tqdm(os.listdir(data_dir), ascii=True):
         study_dir = os.path.join(data_dir, study_name)
-        study = Study(study_dir)
+        study = Study(study_dir, mutiprocessing)
         studies[study.study_uid] = study
 
     if annotation_path is None:
