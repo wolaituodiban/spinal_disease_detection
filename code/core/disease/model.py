@@ -4,7 +4,7 @@ import torch
 import torchvision.transforms.functional as tf
 from .loss import DisLoss
 from ..structure import Study
-from ..key_point import KeyPointModel
+from ..key_point import extract_point_feature, KeyPointModel
 from ..data_utils import SPINAL_VERTEBRA_ID, SPINAL_VERTEBRA_DISEASE_ID, SPINAL_DISC_ID, SPINAL_DISC_DISEASE_ID
 
 
@@ -12,26 +12,6 @@ VERTEBRA_POINT_INT2STR = {v: k for k, v in SPINAL_VERTEBRA_ID.items()}
 VERTEBRA_DISEASE_INT2STR = {v: k for k, v in SPINAL_VERTEBRA_DISEASE_ID.items()}
 DISC_POINT_INT2STR = {v: k for k, v in SPINAL_DISC_ID.items()}
 DISC_DISEASE_INT2STR = {v: k for k, v in SPINAL_DISC_DISEASE_ID.items()}
-
-
-def extract_point_feature(feature_maps: torch.Tensor, coords, height, width):
-    """
-    :param feature_maps: (batch_size, channels, height, width)
-    :param coords: (batch_size, n_points, 2), width在前，height在后
-    :param height:
-    :param width:
-    :return: (batch_size, n_points, channels)
-    """
-    ratio = torch.tensor([feature_maps.shape[-2] / height, feature_maps.shape[-1] / width], device=coords.device)
-    # 需要调整width, height的顺序
-    coords = (coords[:, :, [1, 0]] * ratio).round().long()
-    image_indices = torch.arange(coords.shape[0]).unsqueeze(1).expand(-1, coords.shape[1]).flatten()
-    width_indices = coords[:, :, 0].flatten()
-    height_indices = coords[:, :, 1].flatten()
-    features = feature_maps.permute(0, 2, 3, 1)
-    features = features[image_indices, width_indices, height_indices]
-    features = features.reshape(*coords.shape[:2], -1)
-    return features
 
 
 class DiseaseModelBase(torch.nn.Module):
@@ -190,10 +170,14 @@ class DiseaseModel(DiseaseModelBase):
 
         v_loss = self.vertebra_loss(v_scores, v_labels[:, :, -1], v_masks) * self.loss_scaler
         d_loss = self.disc_loss(d_scores, d_labels[:, :, -1], d_masks) * self.loss_scaler
+
+        loss = torch.stack([v_loss, d_loss])
         if kp_loss is None:
-            return torch.stack([v_loss, d_loss]),
+            return loss,
+        elif len(kp_loss.shape) > 0:
+            return torch.cat([kp_loss.flatten(), loss], dim=0),
         else:
-            return torch.stack([kp_loss, v_loss, d_loss]),
+            return torch.stack([kp_loss.unsqueeze(0), loss], dim=0),
 
     def _inference(self, study: Study, to_dict=False):
         kp_frame = study.t2_sagittal_middle_frame

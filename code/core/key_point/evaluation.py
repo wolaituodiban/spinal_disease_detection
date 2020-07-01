@@ -1,8 +1,14 @@
 import torch
+from tqdm import tqdm
 
 
 class KeyPointAcc:
-    def __init__(self, max_dist=8, point=None):
+    def __init__(self, max_dist=6, point=None):
+        """
+
+        :param max_dist: 判定为真的距离阈值
+        :param point: 如果不是none，那么之计算某个点的精度
+        """
         self.max_dist = max_dist
         self.point = point
 
@@ -35,3 +41,27 @@ class KeyPointAcc:
         dist = dist[image_indices, point_indices, height_indices, width_indices]
         dist = dist[mask.flatten()]
         return (dist < self.max_dist).float().mean()
+
+
+def distance_distribution(module, data_loader):
+    with torch.no_grad():
+        dists = []
+        module.eval()
+        for data, (dist, mask) in tqdm(data_loader, ascii=True):
+            vertebra_coords, disc_coords = module(*data)
+            pred = torch.cat([vertebra_coords, disc_coords], dim=1)
+            width_indices = pred[:, :, 0].flatten()
+            height_indices = pred[:, :, 1].flatten()
+            image_indices = torch.arange(pred.shape[0], device=pred.device)
+            image_indices = image_indices.unsqueeze(1).expand(-1, pred.shape[1]).flatten()
+            point_indices = torch.arange(pred.shape[1], device=pred.device).repeat(pred.shape[0])
+
+            dist = dist.to(image_indices.device)
+            mask = mask.to(image_indices.device)
+
+            mask = mask[image_indices, point_indices]
+            dist = dist[image_indices, point_indices, height_indices, width_indices]
+            dist = dist[mask.flatten()]
+            dists.append(dist)
+        dists = torch.cat(dists).flatten()
+    return dists

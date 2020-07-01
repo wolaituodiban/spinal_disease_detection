@@ -172,7 +172,12 @@ def construct_studies(data_dir, annotation_path=None, mutiprocessing=False):
                     counter['t2_sagittal_not_found'].append(study.study_uid)
                 elif study.t2_sagittal_uid != k[1]:
                     counter['t2_sagittal_miss_match'].append(study.study_uid)
-                elif study.t2_sagittal_middle_frame.instance_uid != k[2]:
-                    counter['t2_sagittal_middle_frame_miss_match'].append(study.study_uid)
+                else:
+                    t2_sagittal = study.t2_sagittal
+                    gt_z_index = t2_sagittal.instance_uids[k[2]]
+                    middle_frame = t2_sagittal.middle_frame
+                    z_index = t2_sagittal.instance_uids[middle_frame.instance_uid]
+                    if abs(gt_z_index - z_index) > 1:
+                        counter['t2_sagittal_middle_frame_miss_match'].append(study.study_uid)
                 study.set_t2_sagittal_middle_frame(k[1], k[2])
         return studies, annotation, counter

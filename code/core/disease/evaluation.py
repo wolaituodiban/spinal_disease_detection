@@ -17,7 +17,7 @@ def distance(coord0, coord1, pixel_spacing):
 
 class Evaluator:
     def __init__(self, module: DiseaseModel, studies: Dict[str, Study], annotation_path: str, metric='macro f1',
-                 max_dist=8, epsilon=1e-5, num_rep=1):
+                 max_dist=6, epsilon=1e-5, num_rep=1):
         self.module = module
         self.studies = studies
         with open(annotation_path, 'r') as file:
