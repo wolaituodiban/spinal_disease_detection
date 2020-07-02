@@ -88,7 +88,8 @@ class KeyPointModel(torch.nn.Module):
             else:
                 loss = self.loss(scores, distmaps, masks)
             if return_more:
-                return loss, scores, feature_maps
+                vertebra_coords, disc_coords, heat_maps = self.pred_coords(scores)
+                return loss, vertebra_coords, disc_coords, heat_maps, feature_maps
             else:
                 return loss,
         else:
@@ -149,7 +150,10 @@ class KeyPointModelV2(KeyPointModel):
                 cascades_losses = self.collect_cascades_losses(cascades_outputs, distmaps, masks)
                 loss = torch.stack([loss] + cascades_losses, dim=0)
             if return_more:
-                return loss, scores, feature_maps
+                final_coords = cascades_outputs[-1].round().long()
+                vertebra_coords = final_coords[:, :self.num_vertebra_points]
+                disc_coords = final_coords[:, self.num_vertebra_points:]
+                return loss, vertebra_coords, disc_coords, heat_maps, feature_maps
             else:
                 return loss,
         else:

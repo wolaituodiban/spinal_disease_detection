@@ -161,7 +161,7 @@ class DiseaseModel(DiseaseModelBase):
             distmaps = None
             masks = None
 
-        kp_loss, _, feature_maps = self.backbone(sagittals, distmaps, masks, return_more=True)
+        kp_loss, vertebra_coords, disc_coords, _, feature_maps = self.backbone(sagittals, distmaps, masks, return_more=True)
         v_features = extract_point_feature(feature_maps, v_labels, *sagittals.shape[-2:])
         d_features = extract_point_feature(feature_maps, d_labels, *sagittals.shape[-2:])
 
@@ -177,7 +177,7 @@ class DiseaseModel(DiseaseModelBase):
         elif len(kp_loss.shape) > 0:
             return torch.cat([kp_loss.flatten(), loss], dim=0),
         else:
-            return torch.stack([kp_loss.unsqueeze(0), loss], dim=0),
+            return torch.cat([kp_loss.unsqueeze(0), loss], dim=0),
 
     def _inference(self, study: Study, to_dict=False):
         kp_frame = study.t2_sagittal_middle_frame
