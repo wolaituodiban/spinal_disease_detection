@@ -4,13 +4,12 @@ from typing import Any, Dict, Tuple
 
 import torch
 import torchvision.transforms.functional as tf
-from torch.utils.data import DataLoader
-from tqdm import tqdm
+from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 from ..data_utils import resize, rotate, gen_distmap, PADDING_VALUE
 
 
-class KeyPointDataSet:
+class KeyPointDataSet(Dataset):
     def __init__(self,
                  images: Dict[Any, Image.Image],
                  spacings: Dict[Any, torch.Tensor],
@@ -37,7 +36,7 @@ class KeyPointDataSet:
         self.min_width = math.inf
         self.min_height = math.inf
 
-        for k, v in tqdm(annotation.items(), ascii=True):
+        for k, v in annotation.items():
             key_point = torch.cat([_[:, :2] for _ in v], dim=0)
             image, spacing = images[k], spacings[k]
             mask = (key_point != PADDING_VALUE).any(dim=1)

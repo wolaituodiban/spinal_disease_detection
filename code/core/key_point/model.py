@@ -30,15 +30,12 @@ def extract_point_feature(feature_maps: torch.Tensor, coords, height, width):
 class KeyPointModel(torch.nn.Module):
     def __init__(self, backbone: BackboneWithFPN, num_vertebra_points: int = len(SPINAL_VERTEBRA_ID),
                  num_disc_points: int = len(SPINAL_DISC_ID), pixel_mean=0.5, pixel_std=1,
-                 loss=KeyPointBCELoss(), spinal_model=SpinalModelBase(), dropout=0):
+                 loss=KeyPointBCELoss(), spinal_model=SpinalModelBase()):
         super().__init__()
         self.backbone = backbone
         self.num_vertebra_points = num_vertebra_points
         self.num_disc_point = num_disc_points
-        self.fc = torch.nn.Sequential(
-            torch.nn.Dropout(dropout, inplace=True),
-            torch.nn.Conv2d(backbone.out_channels, num_vertebra_points + num_disc_points, kernel_size=1)
-        )
+        self.fc = torch.nn.Conv2d(backbone.out_channels, num_vertebra_points + num_disc_points, kernel_size=1)
         self.register_buffer('pixel_mean', torch.tensor(pixel_mean))
         self.register_buffer('pixel_std', torch.tensor(pixel_std))
         self.spinal_model = spinal_model
@@ -103,16 +100,12 @@ class KeyPointModel(torch.nn.Module):
 class KeyPointModelV2(KeyPointModel):
     def __init__(self, backbone: BackboneWithFPN, num_vertebra_points: int = len(SPINAL_VERTEBRA_ID),
                  num_disc_points: int = len(SPINAL_DISC_ID), pixel_mean=0.5, pixel_std=1,
-                 loss=KeyPointBCELoss(), spinal_model=SpinalModelBase(), dropout=0, num_cascades=1,
+                 loss=KeyPointBCELoss(), spinal_model=SpinalModelBase(), num_cascades=1,
                  cascade_loss=torch.nn.SmoothL1Loss(), loss_scaler=1):
-        super().__init__(backbone, num_vertebra_points, num_disc_points, pixel_mean, pixel_std, loss, spinal_model,
-                         dropout)
+        super().__init__(backbone, num_vertebra_points, num_disc_points, pixel_mean, pixel_std, loss, spinal_model)
         cascade_heads = []
         for _ in range(num_cascades):
-            head = torch.nn.Sequential(
-                torch.nn.Dropout(dropout, inplace=True),
-                torch.nn.Linear(backbone.out_channels, 2)
-            )
+            head = torch.nn.Linear(backbone.out_channels, 2)
             cascade_heads.append(head)
         self.cascade_heads = torch.nn.ModuleList(cascade_heads)
         self.cascade_loss = cascade_loss

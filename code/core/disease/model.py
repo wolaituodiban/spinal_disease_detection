@@ -113,23 +113,16 @@ class DiseaseModel(DiseaseModelBase):
                  vertebra_loss=DisLoss([2.2727, 0.6410]),
                  disc_loss=DisLoss([0.4327, 0.7930, 0.8257, 6.4286, 16.3636]),
                  loss_scaler=1,
-                 use_kp_loss=False,
-                 dropout=0):
+                 use_kp_loss=False):
         super(DiseaseModel, self).__init__(kp_model, sagittal_size, num_vertebra_diseases, num_disc_diseases)
         if share_backbone:
             self.kp_model = None
         else:
             self.kp_model = kp_model
 
-        self.vertebra_head = torch.nn.Sequential(
-            torch.nn.Dropout(dropout, inplace=True),
-            torch.nn.Linear(self.backbone.out_channels, num_vertebra_diseases)
-        )
+        self.vertebra_head = torch.nn.Linear(self.backbone.out_channels, num_vertebra_diseases)
+        self.disc_head = torch.nn.Linear(self.backbone.out_channels, num_disc_diseases)
 
-        self.disc_head = torch.nn.Sequential(
-            torch.nn.Dropout(dropout, inplace=True),
-            torch.nn.Linear(self.backbone.out_channels, num_disc_diseases)
-        )
         self.use_kp_loss = use_kp_loss
         self.vertebra_loss = vertebra_loss
         self.disc_loss = disc_loss
