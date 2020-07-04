@@ -1,7 +1,7 @@
 import torch
 from collections import Counter
 from typing import List
-from .dicom import DICOM
+from .dicom import DICOM, lazy_property
 
 
 class Series(list):
@@ -34,12 +34,12 @@ class Series(list):
             item = self.instance_uids[item]
         return super().__getitem__(item)
 
-    @property
+    @lazy_property
     def t_type(self):
         t_type_counter = Counter([d.t_type for d in self])
         return t_type_counter.most_common(1)[0][0]
 
-    @property
+    @lazy_property
     def mean(self):
         output = 0
         i = 0
@@ -53,6 +53,10 @@ class Series(list):
 
     @property
     def middle_frame(self) -> DICOM:
+        """
+        会被修改的属性不应该lazy
+        :return:
+        """
         if self.middle_frame_uid is not None:
             return self[self.middle_frame_uid]
         else:
@@ -61,13 +65,13 @@ class Series(list):
     def set_middle_frame(self, instance_uid):
         self.middle_frame_uid = instance_uid
 
-    @property
-    def study_uid(self):
-        study_uid_counter = Counter([d.study_uid for d in self])
+    @lazy_property
+    def series_uid(self):
+        study_uid_counter = Counter([d.series_uid for d in self])
         return study_uid_counter.most_common(1)[0][0]
 
-    @property
-    def series_uid(self):
+    @lazy_property
+    def study_uid(self):
         study_uid_counter = Counter([d.study_uid for d in self])
         return study_uid_counter.most_common(1)[0][0]
 

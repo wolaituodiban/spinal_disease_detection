@@ -6,7 +6,7 @@ from typing import Union
 from tqdm import tqdm
 import torch
 from torchvision.transforms import functional as tf
-from .dicom import DICOM
+from .dicom import DICOM, lazy_property
 from .series import Series
 from ..data_utils import read_annotation, resize
 
@@ -75,13 +75,17 @@ class Study(dict):
                         max_t2_transverse_mean = t2_transverse_mean
                         self.t2_transverse_uid = series_uid
 
-    @property
+    @lazy_property
     def study_uid(self):
         study_uid_counter = Counter([s.study_uid for s in self.values()])
         return study_uid_counter.most_common(1)[0][0]
 
     @property
     def t2_sagittal(self) -> Union[None, Series]:
+        """
+        会被修改的属性不应该lazy
+        :return:
+        """
         if self.t2_sagittal_uid is None:
             return None
         else:
@@ -89,6 +93,10 @@ class Study(dict):
 
     @property
     def t2_transverse(self) -> Union[None, Series]:
+        """
+        会被修改的属性不应该lazy
+        :return:
+        """
         if self.t2_transverse_uid is None:
             return None
         else:
@@ -96,6 +104,10 @@ class Study(dict):
 
     @property
     def t2_sagittal_middle_frame(self) -> Union[None, DICOM]:
+        """
+        会被修改的属性不应该lazy
+        :return:
+        """
         if self.t2_sagittal is None:
             return None
         else:
@@ -112,6 +124,7 @@ class Study(dict):
         :param pixel_coord: (M, 2)
         :param k:
         :param size:
+        :param max_dist:
         :param prob_rotate:
         :param max_angel:
         :return: (M, k, 1, height, width)

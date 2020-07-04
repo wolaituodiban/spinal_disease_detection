@@ -4,7 +4,7 @@ import torchvision.transforms.functional as tf
 from PIL import Image
 
 
-def foo(image):
+def to_tensor(image):
     if isinstance(image, Image.Image):
         return tf.to_tensor(image)
     else:
@@ -19,7 +19,7 @@ def visilize_coord(image: Union[Image.Image, torch.Tensor], *coords: torch.Tenso
     :param _range:
     :return:
     """
-    image = foo(image)
+    image = to_tensor(image)
     for coord in coords:
         for point in coord:
             # 注意，image和tensor存在转置关系
@@ -35,14 +35,14 @@ def visilize_distmap(image: Union[Image.Image, torch.Tensor], *distmaps: torch.T
     :param max_dist:
     :return:
     """
-    image = foo(image)
+    image = to_tensor(image)
     for distmap in distmaps:
         image[(distmap < max_dist).sum(dim=0).bool().unsqueeze(0)] = 0
     return tf.to_pil_image(image)
 
 
 def visilize_annotation(image, *annotations, _range=10):
-    image = foo(image)
+    image = to_tensor(image)
     for annotation in annotations:
         for point in annotation['data'][0]['annotation'][0]['data']['point']:
             coord = point['coord']

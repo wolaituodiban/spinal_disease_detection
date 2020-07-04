@@ -15,17 +15,18 @@ class KeyPointAcc:
     def __call__(self, vertebra_coords, disc_coords, dist, mask):
         """
 
-        :param pred: (batch_size, num_points, 2)
+        :param vertebra_coords: (batch_size, num_points, 2)
+        :parms disc_coords: (batch_size, num_points, 2)
         :param dist: (batch_size, num_points, height, width)
         :param mask: (batch_size, num_points, 1, 1)
         :return:
         """
-        pred = torch.cat([vertebra_coords, disc_coords], dim=1)
-        width_indices = pred[:, :, 0].flatten()
-        height_indices = pred[:, :, 1].flatten()
-        image_indices = torch.arange(pred.shape[0], device=pred.device)
-        image_indices = image_indices.unsqueeze(1).expand(-1, pred.shape[1]).flatten()
-        point_indices = torch.arange(pred.shape[1], device=pred.device).repeat(pred.shape[0])
+        pred_coords = torch.cat([vertebra_coords, disc_coords], dim=1)
+        width_indices = pred_coords[:, :, 0].flatten()
+        height_indices = pred_coords[:, :, 1].flatten()
+        image_indices = torch.arange(pred_coords.shape[0], device=pred_coords.device)
+        image_indices = image_indices.unsqueeze(1).expand(-1, pred_coords.shape[1]).flatten()
+        point_indices = torch.arange(pred_coords.shape[1], device=pred_coords.device).repeat(pred_coords.shape[0])
 
         if self.point is not None:
             point_mask = point_indices == self.point

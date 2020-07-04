@@ -2,11 +2,13 @@ import sys
 import time
 
 import torch
+from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
 
 from .data_loader import KeyPointDataLoader
-from .loss import NullLoss
+from .loss import KeyPointBCELossV2, NullLoss
 from .evaluation import KeyPointAcc
-from .model import KeyPointModelV2
+from .model import KeyPointModel, KeyPointModelV2
+from .spinal_model import SpinalModel
 from ..data_utils import read_dcms, get_spacing, read_annotation, SPINAL_DISC_ID, SPINAL_VERTEBRA_ID
 
 sys.path.append('../nn_tools/')
@@ -35,7 +37,14 @@ if __name__ == '__main__':
     )
 
     # stage one
-    kp_model = torch.load('models/pretrained.kp_model')
+    backbone = resnet_fpn_backbone('resnet50', True)
+    spinal_model = SpinalModel(train_images, train_annotation,
+                               num_candidates=128, num_selected_templates=8,
+                               max_translation=0.05, scale_range=(0.9, 1.1), max_angel=10)
+    kp_model = KeyPointModel(backbone, len(SPINAL_VERTEBRA_ID), len(SPINAL_DISC_ID),
+                             pixel_mean=0.5, pixel_std=1,
+                             loss=KeyPointBCELossV2(lamb=1), spinal_model=spinal_model)
+    kp_model.load_state_dict(torch.load('models/pretrained.kp_model'))
 
     # stage two
     kp_model_v2 = KeyPointModelV2(kp_model.backbone, len(SPINAL_VERTEBRA_ID), len(SPINAL_DISC_ID),
@@ -58,5 +67,5 @@ if __name__ == '__main__':
         evaluate_per_steps=len(train_dataloader),
         # checkpoint_dir='models',
     )
-    torch.save(kp_model_v2.cpu(), 'models/pretrained.kp_model_v2')
+    torch.save(kp_model_v2.cpu().state_dict(), 'models/pretrained.kp_model_v2')
     print('task completed, {} seconds used'.format(time.time() - start_time))

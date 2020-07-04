@@ -7,7 +7,20 @@ import torchvision.transforms.functional as tf
 from PIL import Image
 
 from ..data_utils import resize, rotate, gen_distmap
-from ..dicom_utils import DICOM_TAG, dicom2array
+from ..dicom_utils import DICOM_TAG
+
+
+def lazy_property(func):
+    attr_name = "_lazy_" + func.__name__
+
+    @property
+    def _lazy_property(self):
+        if not hasattr(self, attr_name):
+            setattr(self, attr_name, func(self))
+
+        return getattr(self, attr_name)
+
+    return _lazy_property
 
 
 def str2tensor(s: str) -> torch.Tensor:
@@ -82,29 +95,61 @@ class DICOM:
             self.series_description = ''
 
         try:
-            self.pixel_spacing = str2tensor(reader.GetMetaData(DICOM_TAG['pixelSpacing']))
+            self._pixel_spacing = reader.GetMetaData(DICOM_TAG['pixelSpacing'])
         except RuntimeError:
-            self.pixel_spacing = torch.full([2, ], fill_value=np.nan)
+            self._pixel_spacing = None
 
         try:
-            self.image_position = str2tensor(reader.GetMetaData(DICOM_TAG['imagePosition']))
+            self._image_position = reader.GetMetaData(DICOM_TAG['imagePosition'])
         except RuntimeError:
-            self.image_position = torch.full([3, ], fill_value=np.nan)
+            self._image_position = None
 
         try:
-            self.image_orientation = unit_vector(
-                str2tensor(reader.GetMetaData(DICOM_TAG['imageOrientation'])).reshape(2, 3))
-            self.unit_normal_vector = unit_normal_vector(self.image_orientation)
+            self._image_orientation = reader.GetMetaData(DICOM_TAG['imageOrientation'])
         except RuntimeError:
-            self.image_orientation = torch.full([2, 3], fill_value=np.nan)
-            self.unit_normal_vector = torch.full([3, ], fill_value=np.nan)
+            self._image_orientation = None
 
         try:
-            self.image: Image.Image = tf.to_pil_image(dicom2array(file_path))
+            image = reader.Execute()
+            if image.GetNumberOfComponentsPerPixel() == 1:
+                image = sitk.RescaleIntensity(image, 0, 255)
+                if reader.GetMetaData('0028|0004').strip() == 'MONOCHROME1':
+                    image = sitk.InvertIntensity(image, maximum=255)
+                image = sitk.Cast(image, sitk.sitkUInt8)
+            img_x = sitk.GetArrayFromImage(image)[0]
+            self.image: Image.Image = tf.to_pil_image(img_x)
         except RuntimeError:
             self.image = None
 
-    @property
+    @lazy_property
+    def pixel_spacing(self):
+        if self._pixel_spacing is None:
+            return torch.full([2, ], fill_value=np.nan)
+        else:
+            return str2tensor(self._pixel_spacing)
+
+    @lazy_property
+    def image_position(self):
+        if self._image_position is None:
+            return torch.full([3, ], fill_value=np.nan)
+        else:
+            return str2tensor(self._image_position)
+
+    @lazy_property
+    def image_orientation(self):
+        if self._image_orientation is None:
+            return torch.full([2, 3], fill_value=np.nan)
+        else:
+            return unit_vector(str2tensor(self._image_orientation).reshape(2, 3))
+
+    @lazy_property
+    def unit_normal_vector(self):
+        if self.image_orientation is None:
+            return torch.full([3, ], fill_value=np.nan)
+        else:
+            return unit_normal_vector(self.image_orientation)
+
+    @lazy_property
     def t_type(self):
         if 'T1' in self.series_description.upper():
             return 'T1'
@@ -113,7 +158,7 @@ class DICOM:
         else:
             return None
 
-    @property
+    @lazy_property
     def plane(self):
         if torch.isnan(self.unit_normal_vector).all():
             return None
@@ -130,7 +175,7 @@ class DICOM:
             # 不知道
             return None
 
-    @property
+    @lazy_property
     def mean(self):
         if self.image is None:
             return None

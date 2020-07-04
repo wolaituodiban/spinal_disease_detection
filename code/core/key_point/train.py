@@ -59,5 +59,5 @@ if __name__ == '__main__':
         evaluate_per_steps=len(train_dataloader),
         # checkpoint_dir='models',
     )
-    torch.save(kp_model.cpu(), 'models/pretrained.kp_model')
+    torch.save(kp_model.cpu().state_dict(), 'models/pretrained.kp_model')
     print('task completed, {} seconds used'.format(time.time() - start_time))

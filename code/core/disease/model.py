@@ -26,6 +26,22 @@ class DiseaseModelBase(torch.nn.Module):
         self.num_disc_disease = num_disc_diseases
         self.backbone = deepcopy(kp_model)
 
+    @property
+    def out_channels(self):
+        return self.backbone.out_channels
+
+    @property
+    def num_vertebra_points(self):
+        return self.backbone.num_vertebra_points
+
+    @property
+    def num_disc_points(self):
+        return self.backbone.num_disc_point
+
+    @property
+    def kp_parameters(self):
+        return self.backbone.kp_parameters
+
     @staticmethod
     def _gen_annotation(study: Study, vertebra_coords, vertebra_scores, disc_coords, disc_scores) -> dict:
         """
@@ -113,25 +129,33 @@ class DiseaseModel(DiseaseModelBase):
                  vertebra_loss=DisLoss([2.2727, 0.6410]),
                  disc_loss=DisLoss([0.4327, 0.7930, 0.8257, 6.4286, 16.3636]),
                  loss_scaler=1,
-                 use_kp_loss=False):
+                 use_kp_loss=False,
+                 max_dist=6):
         super(DiseaseModel, self).__init__(kp_model, sagittal_size, num_vertebra_diseases, num_disc_diseases)
         if share_backbone:
             self.kp_model = None
         else:
             self.kp_model = kp_model
 
-        self.vertebra_head = torch.nn.Linear(self.backbone.out_channels, num_vertebra_diseases)
-        self.disc_head = torch.nn.Linear(self.backbone.out_channels, num_disc_diseases)
+        self.vertebra_head = torch.nn.Linear(self.out_channels, num_vertebra_diseases)
+        self.disc_head = torch.nn.Linear(self.out_channels, num_disc_diseases)
 
         self.use_kp_loss = use_kp_loss
         self.vertebra_loss = vertebra_loss
         self.disc_loss = disc_loss
         self.loss_scaler = loss_scaler
+        self.max_dist = max_dist
+
+    def disease_parameters(self):
+        for p in self.vertebra_head.parameters():
+            yield p
+        for p in self.disc_head.parameters():
+            yield p
 
     # def crop(self, image, point):
-    #     left, right = point[1] - self.crop_size, point[1] + self.crop_size
-    #     top, bottom = point[0] - self.crop_size, point[0] + self.crop_size
-    #     return image[:, left:right, top:bottom]
+    #     left, right = point[0] - self.crop_size, point[0] + self.crop_size
+    #     top, bottom = point[1] - self.crop_size, point[1] + self.crop_size
+    #     return image[:, top:bottom, left:right]
     #
     # def forward(self, sagittals, transverses, v_labels, d_labels, distmaps):
     #     v_patches = []
@@ -147,24 +171,67 @@ class DiseaseModel(DiseaseModelBase):
     #             d_patches.append(patch)
     #     return v_patches, d_patches
 
-    def _train(self, sagittals, transverses, distmaps, v_labels, d_labels, v_masks, d_masks) -> tuple:
+    def _adjuct_masks(self, pred_coords, distmaps, masks):
+        """
+        将距离大于阈值的预测坐标的mask变成false
+        :param pred_coords: (num_batch, num_points, 2)
+        :param distmaps: (num_batch, num_points, height, width)
+        :param masks: (num_batch, num_points)
+        :return:
+        """
+        if self.max_dist <= 0:
+            return masks
+
+        width_indices = pred_coords[:, :, 0].flatten().clamp(0, distmaps.shape[-1]-1)
+        height_indices = pred_coords[:, :, 1].flatten().clamp(0, distmaps.shape[-2]-1)
+
+        image_indices = torch.arange(pred_coords.shape[0], device=pred_coords.device)
+        image_indices = image_indices.unsqueeze(1).expand(-1, pred_coords.shape[1]).flatten()
+        point_indices = torch.arange(pred_coords.shape[1], device=pred_coords.device).repeat(pred_coords.shape[0])
+
+        new_masks = distmaps[image_indices, point_indices, height_indices, width_indices] < self.max_dist
+        new_masks = new_masks.reshape(pred_coords.shape[0], -1)
+
+        # 且运算
+        new_masks = torch.bitwise_and(new_masks, masks)
+        return new_masks
+
+    def _train(self, sagittals, _, distmaps, v_labels, d_labels, v_masks, d_masks) -> tuple:
         if self.use_kp_loss:
             masks = torch.cat([v_masks, d_masks], dim=-1)
+            kp_loss, v_coords, d_coords, _, feature_maps = self.backbone(
+                sagittals, distmaps, masks, return_more=True)
         else:
-            distmaps = None
-            masks = None
+            kp_loss, v_coords, d_coords, _, feature_maps = self.backbone(
+                sagittals, None, None, return_more=True)
 
-        kp_loss, vertebra_coords, disc_coords, _, feature_maps = self.backbone(sagittals, distmaps, masks, return_more=True)
-        v_features = extract_point_feature(feature_maps, v_labels, *sagittals.shape[-2:])
-        d_features = extract_point_feature(feature_maps, d_labels, *sagittals.shape[-2:])
+        #
+        if self.loss_scaler <= 0:
+            return kp_loss,
 
+        # 用于单独训练disease heads
+        if self.kp_model is not None:
+            v_coords, d_coords = self.kp_model.eval()(sagittals)
+
+        # 挑选正确的预测点
+        v_masks = self._adjuct_masks(
+            v_coords, distmaps[:, :self.num_vertebra_points], v_masks)
+        d_masks = self._adjuct_masks(
+            d_coords, distmaps[:, self.num_vertebra_points:], d_masks)
+
+        # 提取坐标点上的特征
+        v_features = extract_point_feature(feature_maps, v_coords, *sagittals.shape[-2:])
+        d_features = extract_point_feature(feature_maps, d_coords, *sagittals.shape[-2:])
+
+        # 计算scores
         v_scores = self.vertebra_head(v_features)
         d_scores = self.disc_head(d_features)
 
-        v_loss = self.vertebra_loss(v_scores, v_labels[:, :, -1], v_masks) * self.loss_scaler
-        d_loss = self.disc_loss(d_scores, d_labels[:, :, -1], d_masks) * self.loss_scaler
+        # 计算损失
+        v_loss = self.vertebra_loss(v_scores, v_labels[:, :, -1], v_masks)
+        d_loss = self.disc_loss(d_scores, d_labels[:, :, -1], d_masks)
 
-        loss = torch.stack([v_loss, d_loss])
+        loss = torch.stack([v_loss, d_loss]) * self.loss_scaler
         if kp_loss is None:
             return loss,
         elif len(kp_loss.shape) > 0:
