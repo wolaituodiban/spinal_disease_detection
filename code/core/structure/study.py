@@ -2,7 +2,7 @@ import os
 import random
 from collections import Counter
 from multiprocessing import Pool, cpu_count
-from typing import Union
+from typing import Dict, Union
 from tqdm import tqdm
 import torch
 from torchvision.transforms import functional as tf
@@ -12,33 +12,31 @@ from ..data_utils import read_annotation, resize
 
 
 class Study(dict):
-    def __init__(self, study_dir, multiprocessing=False):
-        if multiprocessing:
-            with Pool(cpu_count()) as pool:
-                async_results = []
-                for dicom_name in os.listdir(study_dir):
-                    dicom_path = os.path.join(study_dir, dicom_name)
-                    async_results.append(pool.apply_async(DICOM, (dicom_path, )))
+    def __init__(self, study_dir, pool=None):
+        dicom_list = []
+        if pool is not None:
+            async_results = []
+            for dicom_name in os.listdir(study_dir):
+                dicom_path = os.path.join(study_dir, dicom_name)
+                async_results.append(pool.apply_async(DICOM, (dicom_path, )))
 
-                dicom_dict = {}
-                for async_result in async_results:
-                    async_result.wait()
-                    dicom = async_result.get()
-                    series_uid = dicom.series_uid
-                    if series_uid not in dicom_dict:
-                        dicom_dict[series_uid] = [dicom]
-                    else:
-                        dicom_dict[series_uid].append(dicom)
+            for async_result in async_results:
+                async_result.wait()
+                dicom = async_result.get()
+                dicom_list.append(dicom)
         else:
-            dicom_dict = {}
             for dicom_name in os.listdir(study_dir):
                 dicom_path = os.path.join(study_dir, dicom_name)
                 dicom = DICOM(dicom_path)
-                series_uid = dicom.series_uid
-                if series_uid not in dicom_dict:
-                    dicom_dict[series_uid] = [dicom]
-                else:
-                    dicom_dict[series_uid].append(dicom)
+                dicom_list.append(dicom)
+
+        dicom_dict = {}
+        for dicom in dicom_list:
+            series_uid = dicom.series_uid
+            if series_uid not in dicom_dict:
+                dicom_dict[series_uid] = [dicom]
+            else:
+                dicom_dict[series_uid].append(dicom)
 
         super().__init__({k: Series(v) for k, v in dicom_dict.items()})
 
@@ -155,20 +153,30 @@ class Study(dict):
         return images
 
 
-def construct_studies(data_dir, annotation_path=None, mutiprocessing=False):
+def construct_studies(data_dir, annotation_path=None, multiprocessing=False):
     """
     方便批量构造study的函数
     :param data_dir: 存放study的文件夹
-    :param mutiprocessing:
+    :param multiprocessing:
     :param annotation_path: 如果有标注，那么根据标注来确定定位帧
     :return:
     """
-    studies = {}
+    studies: Dict[str, Study] = {}
+    if multiprocessing:
+        pool = Pool(cpu_count())
+    else:
+        pool = None
+
     for study_name in tqdm(os.listdir(data_dir), ascii=True):
         study_dir = os.path.join(data_dir, study_name)
-        study = Study(study_dir, mutiprocessing)
+        study = Study(study_dir, pool)
         studies[study.study_uid] = study
 
+    if pool is not None:
+        pool.close()
+        pool.join()
+
+    # 使用annotation制定正确的中间帧
     if annotation_path is None:
         return studies
     else:
