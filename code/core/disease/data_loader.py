@@ -46,24 +46,25 @@ class DisDataSet(Dataset):
 
     def collate_fn(self, data) -> (Tuple[torch.Tensor], Tuple[None]):
         sagittal_images, transverse_images, vertebra_labels, disc_labels, distmaps = [], [], [], [], []
-        v_masks, d_masks = [], []
+        v_masks, d_masks, t_masks = [], [], []
         for study, key, v_anno, d_anno in data:
             v_mask = gen_mask(v_anno)
             d_mask = gen_mask(d_anno)
             v_masks.append(v_mask)
             d_masks.append(d_mask)
 
-            pixel_coord = torch.cat([v_anno[:, :2], d_anno[:, :2]], dim=0)
-
-            transverse_image = study.t2_transverse_k_nearest(
-                pixel_coord, k=self.k_nearest, size=self.transverse_size, max_dist=self.max_dist,
+            # 因为锥体的轴状图太少了，所以只提取椎间盘的轴状图
+            transverse_image, t_mask = study.t2_transverse_k_nearest(
+                d_anno[:, :2], k=self.k_nearest, size=self.transverse_size, max_dist=self.max_dist,
                 prob_rotate=self.prob_rotate, max_angel=self.max_angel
             )
+            t_masks.append(t_mask)
             transverse_images.append(transverse_image)
 
             dicom: DICOM = study[key[1]][key[2]]
-            sagittal_image, distmap, pixel_coord = dicom.transform(
-                pixel_coord, self.sagittal_size, self.prob_rotate, self.max_angel)
+            pixel_coord = torch.cat([v_anno[:, :2], d_anno[:, :2]], dim=0)
+            sagittal_image, pixel_coord, distmap = dicom.transform(
+                pixel_coord, self.sagittal_size, self.prob_rotate, self.max_angel, distmap=True)
             sagittal_images.append(sagittal_image)
             distmaps.append(distmap)
 
@@ -79,7 +80,11 @@ class DisDataSet(Dataset):
         disc_labels = torch.stack(disc_labels, dim=0)
         v_masks = torch.stack(v_masks, dim=0)
         d_masks = torch.stack(d_masks, dim=0)
-        return (sagittal_images, transverse_images, distmaps, vertebra_labels, disc_labels, v_masks, d_masks), (None, )
+        t_masks = torch.stack(t_masks, dim=0)
+
+        data = (sagittal_images, transverse_images, distmaps, vertebra_labels, disc_labels, v_masks, d_masks, t_masks)
+        label = (None, )
+        return data, label
 
 
 class DisDataLoader(DataLoader):

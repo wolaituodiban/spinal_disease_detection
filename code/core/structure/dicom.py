@@ -219,13 +219,15 @@ class DICOM:
         return (cos / self.pixel_spacing).round()
 
     def transform(self, pixel_coord: torch.Tensor,
-                  size=None, prob_rotate=0, max_angel=0) -> (torch.Tensor, torch.Tensor):
+                  size=None, prob_rotate=0, max_angel=0, distmap=False, tensor=True) -> (torch.Tensor, torch.Tensor):
         """
         返回image tensor和distance map
         :param pixel_coord:
         :param size:
         :param prob_rotate:
         :param max_angel:
+        :param distmap: 是否返回distmap
+        :param tensor: 如果True，那么返回图片的tensor，否则返回Image
         :return:
         """
         image, pixel_spacing = self.image, self.pixel_spacing
@@ -236,6 +238,11 @@ class DICOM:
             angel = random.randint(-max_angel, max_angel)
             image, pixel_coord = rotate(image, pixel_coord, angel)
 
-        image = tf.to_tensor(image)
-        distmap = gen_distmap(image, pixel_spacing, pixel_coord)
-        return image, distmap, pixel_coord.round().long()
+        if tensor:
+            image = tf.to_tensor(image)
+        pixel_coord = pixel_coord.round().long()
+        if distmap:
+            distmap = gen_distmap(image, pixel_spacing, pixel_coord)
+            return image, pixel_coord, distmap
+        else:
+            return image, pixel_coord

@@ -29,11 +29,11 @@ if __name__ == '__main__':
     train_dataloader = KeyPointDataLoader(
         train_images, train_spacings, train_annotation, batch_size=8, num_workers=3,
         prob_rotate=1, max_angel=180, num_rep=20, size=[512, 512],
-        pin_memory=True
+        pin_memory=False
     )
     valid_dataloader = KeyPointDataLoader(
         valid_images, valid_spacings, valid_annotation, batch_size=1, num_workers=5,
-        num_rep=20, size=[512, 512], pin_memory=True
+        num_rep=20, size=[512, 512], pin_memory=False
     )
 
     # stage one

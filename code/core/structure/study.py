@@ -116,7 +116,8 @@ class Study(dict):
         self.t2_sagittal_uid = series_uid
         self.t2_sagittal.set_middle_frame(instance_uid)
 
-    def t2_transverse_k_nearest(self, pixel_coord, k, size, max_dist, prob_rotate=0, max_angel=0):
+    def t2_transverse_k_nearest(self, pixel_coord, k, size, max_dist, prob_rotate=0,
+                                max_angel=0) -> (torch.Tensor, torch.Tensor):
         """
 
         :param pixel_coord: (M, 2)
@@ -125,33 +126,42 @@ class Study(dict):
         :param max_dist:
         :param prob_rotate:
         :param max_angel:
-        :return: (M, k, 1, height, width)
+        :return: 图像张量(M, k, 1, height, width)，masks(M， k)
+            masks: 为None的位置将被标注为True
         """
         if k <= 0 or self.t2_transverse is None:
             # padding
-            return torch.zeros(pixel_coord.shape[0], k, 1, *size)
+            images = torch.zeros(pixel_coord.shape[0], k, 1, *size)
+            masks = torch.zeros(*images.shape[:2], dtype=torch.bool)
+            return images, masks
         human_coord = self.t2_sagittal_middle_frame.pixel_coord2human_coord(pixel_coord)
         dicoms = self.t2_transverse.k_nearest(human_coord, k, max_dist)
         images = []
+        masks = []
         for point, series in zip(human_coord, dicoms):
-            temp = []
+            temp_images = []
+            temp_masks = []
             for dicom in series:
                 if dicom is None:
+                    temp_masks.append(True)
                     image = torch.zeros(1, *size)
                 else:
+                    temp_masks.append(False)
                     projection = dicom.projection(point)
-                    image, _, projection = resize((size[0]*2, size[1]*2), dicom.image, dicom.pixel_spacing, projection)
+                    image, projection = dicom.transform(
+                        projection, size=[size[0]*2, size[1]*2], prob_rotate=prob_rotate, max_angel=max_angel,
+                        tensor=False
+                    )
                     image = tf.crop(
                         image, int(projection[0]-size[0]//2), int(projection[1]-size[1]//2), size[0], size[1])
-                    if max_angel > 0 and random.random() <= prob_rotate:
-                        angel = random.randint(-max_angel, max_angel)
-                        image = tf.rotate(image, angel)
                     image = tf.to_tensor(image)
-                temp.append(image)
-            temp = torch.stack(temp, dim=0)
-            images.append(temp)
+                temp_images.append(image)
+            temp_images = torch.stack(temp_images, dim=0)
+            images.append(temp_images)
+            masks.append(temp_masks)
         images = torch.stack(images, dim=0)
-        return images
+        masks = torch.tensor(masks, dtype=torch.bool)
+        return images, masks
 
 
 def construct_studies(data_dir, annotation_path=None, multiprocessing=False):

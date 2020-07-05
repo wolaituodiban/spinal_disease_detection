@@ -18,9 +18,9 @@ from nn_tools import torch_utils
 if __name__ == '__main__':
     start_time = time.time()
     train_studies, train_annotation, train_counter = construct_studies(
-        '../data/lumbar_train150', '../data/lumbar_train150_annotation.json', mutiprocessing=True)
+        '../data/lumbar_train150', '../data/lumbar_train150_annotation.json', multiprocessing=True)
     valid_studies, valid_annotation, valid_counter = construct_studies(
-        '../data/train/', '../data/lumbar_train51_annotation.json', mutiprocessing=True)
+        '../data/train/', '../data/lumbar_train51_annotation.json', multiprocessing=True)
 
     train_dataloader = DisDataLoader(train_studies, train_annotation, batch_size=8, sagittal_size=[512, 512],
                                      transverse_size=[256, 256], k_nearest=1, num_workers=4, num_rep=20,

@@ -45,6 +45,10 @@ class KeyPointModel(torch.nn.Module):
     def out_channels(self):
         return self.backbone.out_channels
 
+    @property
+    def resnet_out_channels(self):
+        return self.backbone.fpn.inner_blocks[-1].in_channels
+
     def kp_parameters(self):
         for p in self.fc.parameters():
             yield p
