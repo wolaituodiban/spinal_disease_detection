@@ -191,6 +191,18 @@ class DiseaseModel(DiseaseModelBase):
     #             d_patches.append(patch)
     #     return v_patches, d_patches
 
+    def _mask_pred(self, pred_coords, distmaps):
+        width_indices = pred_coords[:, :, 0].flatten().clamp(0, distmaps.shape[-1]-1)
+        height_indices = pred_coords[:, :, 1].flatten().clamp(0, distmaps.shape[-2]-1)
+
+        image_indices = torch.arange(pred_coords.shape[0], device=pred_coords.device)
+        image_indices = image_indices.unsqueeze(1).expand(-1, pred_coords.shape[1]).flatten()
+        point_indices = torch.arange(pred_coords.shape[1], device=pred_coords.device).repeat(pred_coords.shape[0])
+
+        new_masks = distmaps[image_indices, point_indices, height_indices, width_indices] < self.kp_max_dist
+        new_masks = new_masks.reshape(pred_coords.shape[0], -1)
+        return new_masks
+
     def _adjust_masks(self, pred_coords, distmaps, masks):
         """
         将距离大于阈值的预测坐标的mask变成false
@@ -202,19 +214,18 @@ class DiseaseModel(DiseaseModelBase):
         if self.kp_max_dist <= 0:
             return masks
 
-        width_indices = pred_coords[:, :, 0].flatten().clamp(0, distmaps.shape[-1]-1)
-        height_indices = pred_coords[:, :, 1].flatten().clamp(0, distmaps.shape[-2]-1)
-
-        image_indices = torch.arange(pred_coords.shape[0], device=pred_coords.device)
-        image_indices = image_indices.unsqueeze(1).expand(-1, pred_coords.shape[1]).flatten()
-        point_indices = torch.arange(pred_coords.shape[1], device=pred_coords.device).repeat(pred_coords.shape[0])
-
-        new_masks = distmaps[image_indices, point_indices, height_indices, width_indices] < self.kp_max_dist
-        new_masks = new_masks.reshape(pred_coords.shape[0], -1)
+        new_masks = self._mask_pred(pred_coords, distmaps)
 
         # 且运算
         new_masks = torch.bitwise_and(new_masks, masks)
         return new_masks
+
+    def _adjust_pred(self, pred_coords, distmaps, gt_coords):
+        gt_coords = gt_coords.to(pred_coords.device)
+        new_masks = self._mask_pred(pred_coords, distmaps)
+        new_masks = torch.bitwise_not(new_masks)
+        pred_coords[new_masks] = gt_coords[new_masks]
+        return pred_coords
 
     @staticmethod
     def _agg_features(d_point_feats, transverse, t_masks):
@@ -245,10 +256,18 @@ class DiseaseModel(DiseaseModelBase):
             v_coords, d_coords = self.kp_model.eval()(sagittals)
 
         # 挑选正确的预测点
-        v_masks = self._adjust_masks(
-            v_coords, distmaps[:, :self.num_vertebra_points], v_masks)
-        d_masks = self._adjust_masks(
-            d_coords, distmaps[:, self.num_vertebra_points:], d_masks)
+        # v_masks = self._adjust_masks(
+        #     v_coords, distmaps[:, :self.num_vertebra_points], v_masks)
+        # d_masks = self._adjust_masks(
+        #     d_coords, distmaps[:, self.num_vertebra_points:], d_masks)
+
+        # 将错误的预测改为正确位置
+        v_coords = self._adjust_pred(
+            v_coords, distmaps[:, :self.num_vertebra_points], v_labels[:, :, :2]
+        )
+        d_coords = self._adjust_pred(
+            d_coords, distmaps[:, self.num_vertebra_points:], d_coords[:, :, :2]
+        )
 
         # 提取坐标点上的特征
         v_features = extract_point_feature(feature_maps, v_coords, *sagittals.shape[-2:])
