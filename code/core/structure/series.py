@@ -65,6 +65,27 @@ class Series(list):
     def set_middle_frame(self, instance_uid):
         self.middle_frame_uid = instance_uid
 
+    @property
+    def image_positions(self):
+        positions = []
+        for dicom in self:
+            positions.append(dicom.image_position)
+        return torch.stack(positions, dim=0)
+
+    @property
+    def image_orientations(self):
+        orientations = []
+        for dicom in self:
+            orientations.append(dicom.image_orientation)
+        return torch.stack(orientations, dim=0)
+
+    @property
+    def unit_normal_vectors(self):
+        vectors = []
+        for dicom in self:
+            vectors.append(dicom.unit_normal_vector)
+        return torch.stack(vectors, dim=0)
+
     @lazy_property
     def series_uid(self):
         study_uid_counter = Counter([d.series_uid for d in self])
@@ -94,8 +115,8 @@ class Series(list):
         distance = self.point_distance(coord)
         indices = torch.argsort(distance, dim=-1)
         if len(indices.shape) == 1:
-            return [[self[i] if d < max_dist else None for i, d in zip(indices[:k], distance[:k])]]
+            return [[self[i] if distance[i] < max_dist else None for i in indices[:k]]]
         else:
-            return [[self[i] if d < max_dist else None for i, d in zip(row[:k], row_d[:k])]
+            return [[self[i] if row_d[i] < max_dist else None for i in row[:k]]
                     for row, row_d in zip(indices, distance)]
 

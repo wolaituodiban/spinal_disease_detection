@@ -127,7 +127,7 @@ class Study(dict):
         :param max_angel:
         :return: (M, k, 1, height, width)
         """
-        if self.t2_transverse is None:
+        if k <= 0 or self.t2_transverse is None:
             # padding
             return torch.zeros(pixel_coord.shape[0], k, 1, *size)
         human_coord = self.t2_sagittal_middle_frame.pixel_coord2human_coord(pixel_coord)
@@ -141,7 +141,8 @@ class Study(dict):
                 else:
                     projection = dicom.projection(point)
                     image, _, projection = resize((size[0]*2, size[1]*2), dicom.image, dicom.pixel_spacing, projection)
-                    image = tf.crop(image, int(projection[0]-size[0]//2), int(projection[1]-size[1]//2), size[0], size[1])
+                    image = tf.crop(
+                        image, int(projection[0]-size[0]//2), int(projection[1]-size[1]//2), size[0], size[1])
                     if max_angel > 0 and random.random() <= prob_rotate:
                         angel = random.randint(-max_angel, max_angel)
                         image = tf.rotate(image, angel)
