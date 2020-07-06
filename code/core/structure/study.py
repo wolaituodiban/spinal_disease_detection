@@ -164,14 +164,7 @@ class Study(dict):
         return images, masks
 
 
-def construct_studies(data_dir, annotation_path=None, multiprocessing=False):
-    """
-    方便批量构造study的函数
-    :param data_dir: 存放study的文件夹
-    :param multiprocessing:
-    :param annotation_path: 如果有标注，那么根据标注来确定定位帧
-    :return:
-    """
+def _construct_studies(data_dir, multiprocessing=False):
     studies: Dict[str, Study] = {}
     if multiprocessing:
         pool = Pool(cpu_count())
@@ -186,30 +179,49 @@ def construct_studies(data_dir, annotation_path=None, multiprocessing=False):
     if pool is not None:
         pool.close()
         pool.join()
+    return studies
+
+
+def _set_middle_frame(studies: Dict[str, Study], annotation):
+    counter = {
+        't2_sagittal_not_found': [],
+        't2_sagittal_miss_match': [],
+        't2_sagittal_middle_frame_miss_match': []
+    }
+    for k in annotation.keys():
+        if k[0] in studies:
+            study = studies[k[0]]
+            if study.t2_sagittal is None:
+                counter['t2_sagittal_not_found'].append(study.study_uid)
+            elif study.t2_sagittal_uid != k[1]:
+                counter['t2_sagittal_miss_match'].append(study.study_uid)
+            else:
+                t2_sagittal = study.t2_sagittal
+                gt_z_index = t2_sagittal.instance_uids[k[2]]
+                middle_frame = t2_sagittal.middle_frame
+                z_index = t2_sagittal.instance_uids[middle_frame.instance_uid]
+                if abs(gt_z_index - z_index) > 1:
+                    counter['t2_sagittal_middle_frame_miss_match'].append(study.study_uid)
+            study.set_t2_sagittal_middle_frame(k[1], k[2])
+    return counter
+
+
+def construct_studies(data_dir, annotation_path=None, multiprocessing=False):
+    """
+    方便批量构造study的函数
+    :param data_dir: 存放study的文件夹
+    :param multiprocessing:
+    :param annotation_path: 如果有标注，那么根据标注来确定定位帧
+    :return:
+    """
+    studies = _construct_studies(data_dir, multiprocessing)
 
     # 使用annotation制定正确的中间帧
     if annotation_path is None:
         return studies
     else:
-        counter = {
-            't2_sagittal_not_found': [],
-            't2_sagittal_miss_match': [],
-            't2_sagittal_middle_frame_miss_match': []
-        }
         annotation = read_annotation(annotation_path)
-        for k in annotation.keys():
-            if k[0] in studies:
-                study = studies[k[0]]
-                if study.t2_sagittal is None:
-                    counter['t2_sagittal_not_found'].append(study.study_uid)
-                elif study.t2_sagittal_uid != k[1]:
-                    counter['t2_sagittal_miss_match'].append(study.study_uid)
-                else:
-                    t2_sagittal = study.t2_sagittal
-                    gt_z_index = t2_sagittal.instance_uids[k[2]]
-                    middle_frame = t2_sagittal.middle_frame
-                    z_index = t2_sagittal.instance_uids[middle_frame.instance_uid]
-                    if abs(gt_z_index - z_index) > 1:
-                        counter['t2_sagittal_middle_frame_miss_match'].append(study.study_uid)
-                study.set_t2_sagittal_middle_frame(k[1], k[2])
+        counter = _set_middle_frame(studies, annotation)
         return studies, annotation, counter
+
+# TODO 添加一个使用中间帧的旁边两帧的数据增广函数

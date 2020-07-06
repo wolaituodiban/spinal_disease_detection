@@ -88,6 +88,7 @@ class DisDataSet(Dataset):
 
 
 class DisDataLoader(DataLoader):
+    # TODO 添加一些sampling的方法
     def __init__(self, studies, annotations, batch_size, sagittal_size, transverse_size, k_nearest,
                  num_workers=0, prob_rotate=False, max_angel=0, max_dist=8, num_rep=1, pin_memory=False):
         dataset = DisDataSet(studies=studies, annotations=annotations, sagittal_size=sagittal_size,

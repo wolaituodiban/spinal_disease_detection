@@ -275,9 +275,12 @@ class DiseaseModel(DiseaseModelBase):
         sagittal = tf.resize(kp_frame.image, self.sagittal_size)
         sagittal = tf.to_tensor(sagittal).unsqueeze(0)
 
-        v_coord, d_coord, _, feature_maps = self.backbone(sagittal, return_more=True)
         if self.kp_model is not None:
             v_coord, d_coord = self.kp_model(sagittal)
+            _, feature_maps = self.backbone.cal_scores(sagittal)
+        else:
+            v_coord, d_coord, _, feature_maps = self.backbone(sagittal, return_more=True)
+
         v_feature = extract_point_feature(feature_maps, v_coord, *self.sagittal_size)
         d_feature = extract_point_feature(feature_maps, d_coord, *self.sagittal_size)
 
@@ -355,6 +358,10 @@ class DiseaseModelV2(DiseaseModel):
         :param t_masks: (num_batch, num_points, k_nearest)，轴状图为padding的地方是True
         :return:
         """
+        # T当k nearest为0时，功能退化为V1
+        if self.k_nearest <= 0:
+            return d_point_feats
+
         t_features = self.backbone.cal_backbone(transverses.flatten(end_dim=2))
         t_features = self.transverse_block(t_features).reshape(*transverses.shape[:3], -1)
         t_masks = t_masks.to(t_features.device)
@@ -375,3 +382,5 @@ class DiseaseModelV2(DiseaseModel):
         final_features = self.aggregation(all_features, src_key_padding_mask=all_masks)[0]
         final_features = final_features.reshape(*transverses.shape[:2], -1)
         return final_features
+
+# TODO 添加V3，使用三帧矢状图混合定位
