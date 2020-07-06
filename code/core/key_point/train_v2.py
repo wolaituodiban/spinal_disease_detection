@@ -5,7 +5,7 @@ import torch
 from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
 
 from .data_loader import KeyPointDataLoader
-from .loss import KeyPointBCELossV2, NullLoss
+from .loss import KeyPointBCELossV2, NullLoss, CascadeLossV2
 from .evaluation import KeyPointAcc
 from .model import KeyPointModel, KeyPointModelV2
 from .spinal_model import SpinalModel
@@ -26,16 +26,6 @@ if __name__ == '__main__':
     valid_annotation = read_annotation('data/lumbar_train51_annotation.json')
     valid_annotation = {k: v for k, v in valid_annotation.items() if k in valid_images}
 
-    train_dataloader = KeyPointDataLoader(
-        train_images, train_spacings, train_annotation, batch_size=8, num_workers=3,
-        prob_rotate=1, max_angel=180, num_rep=20, size=[512, 512],
-        pin_memory=False
-    )
-    valid_dataloader = KeyPointDataLoader(
-        valid_images, valid_spacings, valid_annotation, batch_size=1, num_workers=5,
-        num_rep=20, size=[512, 512], pin_memory=False
-    )
-
     # stage one
     backbone = resnet_fpn_backbone('resnet50', True)
     spinal_model = SpinalModel(train_images, train_annotation,
@@ -49,9 +39,20 @@ if __name__ == '__main__':
     # stage two
     kp_model_v2 = KeyPointModelV2(kp_model.backbone, len(SPINAL_VERTEBRA_ID), len(SPINAL_DISC_ID),
                                   pixel_mean=kp_model.pixel_mean, pixel_std=kp_model.pixel_std,
-                                  loss=kp_model.loss, spinal_model=kp_model.spinal_model, loss_scaler=100,
-                                  num_cascades=2).cuda()
+                                  loss=kp_model.loss, spinal_model=kp_model.spinal_model,
+                                  cascade_loss=CascadeLossV2(10), loss_scaler=100, num_cascades=3).cuda()
     kp_model_v2.fc.load_state_dict(kp_model.fc.state_dict())
+
+    # 设置训练参数
+    train_dataloader = KeyPointDataLoader(
+        train_images, train_spacings, train_annotation, batch_size=8, num_workers=3,
+        prob_rotate=1, max_angel=180, num_rep=20, size=[512, 512],
+        pin_memory=False
+    )
+    valid_dataloader = KeyPointDataLoader(
+        valid_images, valid_spacings, valid_annotation, batch_size=1, num_workers=5,
+        num_rep=20, size=[512, 512], pin_memory=False
+    )
 
     optimizer = torch.optim.AdamW(kp_model_v2.parameters(), lr=1e-5)
     max_step = 50*len(train_dataloader)

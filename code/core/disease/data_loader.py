@@ -89,7 +89,7 @@ class DisDataSet(Dataset):
 
 class DisDataLoader(DataLoader):
     def __init__(self, studies, annotations, batch_size, sagittal_size, transverse_size, k_nearest,
-                 num_workers=0, prob_rotate=False, max_angel=0, max_dist=8, num_rep=1, pin_memory=True):
+                 num_workers=0, prob_rotate=False, max_angel=0, max_dist=8, num_rep=1, pin_memory=False):
         dataset = DisDataSet(studies=studies, annotations=annotations, sagittal_size=sagittal_size,
                              transverse_size=transverse_size, k_nearest=k_nearest, prob_rotate=prob_rotate,
                              max_angel=max_angel, num_rep=num_rep, max_dist=max_dist)

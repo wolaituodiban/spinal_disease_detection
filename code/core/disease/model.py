@@ -203,23 +203,6 @@ class DiseaseModel(DiseaseModelBase):
         new_masks = new_masks.reshape(pred_coords.shape[0], -1)
         return new_masks
 
-    def _adjust_masks(self, pred_coords, distmaps, masks):
-        """
-        将距离大于阈值的预测坐标的mask变成false
-        :param pred_coords: (num_batch, num_points, 2)
-        :param distmaps: (num_batch, num_points, height, width)
-        :param masks: (num_batch, num_points)
-        :return:
-        """
-        if self.kp_max_dist <= 0:
-            return masks
-
-        new_masks = self._mask_pred(pred_coords, distmaps)
-
-        # 且运算
-        new_masks = torch.bitwise_and(new_masks, masks)
-        return new_masks
-
     def _adjust_pred(self, pred_coords, distmaps, gt_coords):
         gt_coords = gt_coords.to(pred_coords.device)
         new_masks = self._mask_pred(pred_coords, distmaps)
@@ -251,15 +234,9 @@ class DiseaseModel(DiseaseModelBase):
         if self.loss_scaler <= 0:
             return kp_loss,
 
-        # 用于单独训练disease heads
+        # 决定使用那种坐标训练
         if self.kp_model is not None:
             v_coords, d_coords = self.kp_model.eval()(sagittals)
-
-        # 挑选正确的预测点
-        # v_masks = self._adjust_masks(
-        #     v_coords, distmaps[:, :self.num_vertebra_points], v_masks)
-        # d_masks = self._adjust_masks(
-        #     d_coords, distmaps[:, self.num_vertebra_points:], d_masks)
 
         # 将错误的预测改为正确位置
         v_coords = self._adjust_pred(
@@ -342,7 +319,8 @@ class DiseaseModelV2(DiseaseModel):
                  kp_max_dist=6,
                  transverse_max_dist=8,
                  k_nearest=1,
-                 nhead=8):
+                 nhead=8,
+                 transverse_only=False):
         super().__init__(kp_model=kp_model, sagittal_size=sagittal_size, num_vertebra_diseases=num_vertebra_diseases,
                          num_disc_diseases=num_disc_diseases, share_backbone=share_backbone,
                          vertebra_loss=vertebra_loss, disc_loss=disc_loss, loss_scaler=loss_scaler,
@@ -350,6 +328,7 @@ class DiseaseModelV2(DiseaseModel):
         self.transverse_size = transverse_size
         self.transverse_max_dist = transverse_max_dist
         self.k_nearest = k_nearest
+        self.transverse_only = transverse_only
 
         self.transverse_block = torch.nn.Sequential(
             torch.nn.Conv2d(
@@ -371,21 +350,26 @@ class DiseaseModelV2(DiseaseModel):
     def _agg_features(self, d_point_feats, transverses, t_masks):
         """
         融合椎间盘的矢状图和轴状图的特征
-        :param d_point_feats: (num_batch, num_points, out_channels)
+        :param d_point_feats: 椎间盘点特征，(num_batch, num_points, out_channels)
         :param transverses: (num_batch, num_points, k_nearest, 1, height, width)
         :param t_masks: (num_batch, num_points, k_nearest)，轴状图为padding的地方是True
         :return:
         """
         t_features = self.backbone.cal_backbone(transverses.flatten(end_dim=2))
         t_features = self.transverse_block(t_features).reshape(*transverses.shape[:3], -1)
+        t_masks = t_masks.to(t_features.device)
 
-        all_features = torch.cat([d_point_feats.unsqueeze(2), t_features], dim=2)
+        if self.transverse_only:
+            all_features = t_features
+            all_masks = torch.zeros(*t_masks.shape[:2], 1, device=t_masks.device, dtype=t_masks.dtype)
+            all_masks = torch.cat([all_masks, t_masks[:, :, 1:]], dim=2)
+        else:
+            all_features = torch.cat([d_point_feats.unsqueeze(2), t_features], dim=2)
+            # 矢状图的特征是全部都要用上的，所以d_masks全为False
+            d_masks = torch.zeros(*t_masks.shape[:2], 1, device=t_masks.device, dtype=t_masks.dtype)
+            all_masks = torch.cat([d_masks, t_masks], dim=2)
+
         all_features = all_features.flatten(end_dim=1).permute(1, 0, 2)
-
-        t_masks = t_masks.to(all_features.device)
-        # 矢状图的特征是全部都要用上的，所以s_masks全为False
-        s_masks = torch.zeros(*t_masks.shape[:2], 1, device=t_masks.device, dtype=t_masks.dtype)
-        all_masks = torch.cat([s_masks, t_masks], dim=-1)
         all_masks = all_masks.flatten(end_dim=1)
 
         final_features = self.aggregation(all_features, src_key_padding_mask=all_masks)[0]
