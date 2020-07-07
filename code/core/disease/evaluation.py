@@ -80,7 +80,7 @@ class Evaluator:
         """
         columns = ['disc_' + k for k in SPINAL_DISC_DISEASE_ID]
         columns += ['vertebra_' + k for k in SPINAL_VERTEBRA_DISEASE_ID]
-        output = pd.DataFrame(0, columns=columns, index=columns+['wrong', 'not_hit'])
+        output = pd.DataFrame(self.epsilon, columns=columns, index=columns+['wrong', 'not_hit'])
 
         predictions = format_annotation(predictions)
         for study_uid, annotation in self.annotations.items():

@@ -321,7 +321,7 @@ class DiseaseModelV2(DiseaseModel):
                  use_kp_loss=False,
                  kp_max_dist=6,
                  transverse_max_dist=8,
-                 k_nearest=1,
+                 k_nearest=0,
                  nhead=8,
                  transverse_only=False):
         super().__init__(kp_model=kp_model, sagittal_size=sagittal_size, num_vertebra_diseases=num_vertebra_diseases,
@@ -383,4 +383,60 @@ class DiseaseModelV2(DiseaseModel):
         final_features = final_features.reshape(*transverses.shape[:2], -1)
         return final_features
 
-# TODO 添加V3，使用三帧矢状图混合定位
+
+class DiseaseModelV3(DiseaseModelV2):
+    def _inference(self, study: Study, to_dict=False):
+        middle_frame_size = study.t2_sagittal_middle_frame.size
+        middle_frame_uid = study.t2_sagittal_middle_frame.instance_uid
+        middle_frame_idx = study.t2_sagittal.instance_uids[middle_frame_uid]
+        # 传入三张矢量图
+        sagittals = []
+        for idx in range(middle_frame_idx-1, middle_frame_idx+2):
+            sagittal = study.t2_sagittal[idx]
+            # 将图片放缩到模型设定的大小
+            sagittal = tf.resize(sagittal.image, self.sagittal_size)
+            sagittal = tf.to_tensor(sagittal)
+            sagittals.append(sagittal)
+        sagittals = torch.stack(sagittals, dim=0)
+
+        if self.kp_model is not None:
+            v_coord, d_coord = self.kp_model(sagittals)
+            _, feature_maps = self.backbone.cal_scores(sagittals)
+        else:
+            v_coord, d_coord, _, feature_maps = self.backbone(sagittals, return_more=True)
+
+        # 坐标求中位数
+        v_coord = v_coord.median(dim=0, keepdim=True)[0]
+        d_coord = d_coord.median(dim=0, keepdim=True)[0]
+
+        # 在三个feature_map上一起在提取点特征，并取平均值
+        v_feature = extract_point_feature(feature_maps, v_coord.expand(3, -1, -1), *self.sagittal_size)
+        d_feature = extract_point_feature(feature_maps, d_coord.expand(3, -1, -1), *self.sagittal_size)
+
+        # 提取transverse特征
+        transverse, t_mask = study.t2_transverse_k_nearest(
+            d_coord[0].cpu(), k=self.k_nearest, size=self.transverse_size, max_dist=self.transverse_max_dist
+        )
+        d_feature = self._agg_features(
+            d_feature,
+            transverse.unsqueeze(0).expand(3, -1, -1, 1, -1, -1),
+            t_mask.unsqueeze(0).expand(3, -1, -1)
+        )
+
+        # 计算分数，并取中位数
+        v_score = self.vertebra_head(v_feature).median(dim=0)[0]
+        d_score = self.disc_head(d_feature).median(dim=0)[0]
+
+        # 将预测的坐标调整到原来的大小，注意要在extract_point_feature之后变换
+        height_ratio = self.sagittal_size[0] / middle_frame_size[1]
+        width_ratio = self.sagittal_size[1] / middle_frame_size[0]
+        ratio = torch.tensor([width_ratio, height_ratio], device=v_coord.device)
+
+        # 将坐标变回原来的大小
+        v_coord = (v_coord.float() / ratio).round()[0]
+        d_coord = (d_coord.float() / ratio).round()[0]
+
+        if to_dict:
+            return self._gen_annotation(study, v_coord, v_score, d_coord, d_score)
+        else:
+            return v_coord, v_score, d_coord, d_score
