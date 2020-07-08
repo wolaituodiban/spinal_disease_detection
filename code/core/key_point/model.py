@@ -59,7 +59,9 @@ class KeyPointModel(torch.nn.Module):
     def _preprocess(self, images: torch.Tensor) -> torch.Tensor:
         images = images.to(self.pixel_mean.device)
         images = (images - self.pixel_mean) / self.pixel_std
-        images = images.expand(-1, 3, -1, -1)
+        # 如果输入的是灰度图，那么将通道扩展到3
+        if images.shape[1] == 1:
+            images = images.expand(-1, 3, -1, -1)
         return images
 
     def cal_scores(self, images):

@@ -4,12 +4,12 @@ import time
 import torch
 from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
 
-from .data_loader import DisDataLoader
-from .evaluation import Evaluator
-from .model import DiseaseModel, DiseaseModelV2
-from ..data_utils import SPINAL_DISC_ID, SPINAL_VERTEBRA_ID
-from ..key_point import SpinalModel, KeyPointModel, KeyPointModelV2, KeyPointBCELossV2, NullLoss
-from ..structure import construct_studies
+from code.core.disease.data_loader import DisDataLoader
+from code.core.disease.evaluation import Evaluator
+from code.core.disease.model import DiseaseModelV3
+from code.core.data_utils import SPINAL_DISC_ID, SPINAL_VERTEBRA_ID
+from code.core.key_point import SpinalModel, KeyPointModelV2, KeyPointBCELossV2, NullLoss
+from code.core.structure import construct_studies
 
 sys.path.append('../nn_tools/')
 from nn_tools import torch_utils
@@ -32,12 +32,13 @@ if __name__ == '__main__':
     spinal_model = SpinalModel(train_images, train_annotation,
                                num_candidates=128, num_selected_templates=8,
                                max_translation=0.05, scale_range=(0.9, 1.1), max_angel=10)
-    kp_model = KeyPointModelV2(backbone, len(SPINAL_VERTEBRA_ID), len(SPINAL_DISC_ID), pixel_mean=0.5, pixel_std=1,
+    kp_model = KeyPointModelV2(backbone, pixel_mean=0.5, pixel_std=1,
                                loss=KeyPointBCELossV2(lamb=1), spinal_model=spinal_model, loss_scaler=100,
                                num_cascades=2)
 
-    dis_model = DiseaseModel(
+    dis_model = DiseaseModelV3(
         kp_model, sagittal_size=(512, 512), loss_scaler=1, use_kp_loss=False, share_backbone=False,
+        transverse_size=(128, 128)
     )
 
     dis_model.kp_model.load_state_dict(torch.load('models/2020070102.kp_model_v2'))
@@ -48,7 +49,7 @@ if __name__ == '__main__':
 
     # 设定训练参数
     train_dataloader = DisDataLoader(
-        train_studies, train_annotation, batch_size=8, num_workers=3, num_rep=10, prob_rotate=1, max_angel=180,
+        train_studies, train_annotation, batch_size=8, num_workers=3, num_rep=20, prob_rotate=1, max_angel=180,
         sagittal_size=dis_model.sagittal_size, transverse_size=dis_model.transverse_size, k_nearest=dis_model.k_nearest
     )
 
