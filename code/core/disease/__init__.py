@@ -1,4 +1,4 @@
 from .data_loader import DisDataLoader
 from .evaluation import Evaluator
 from .loss import DisLoss
-from .model import DiseaseModelBase, DiseaseModel, DiseaseModelV2, DiseaseModelV3
+from .model import DiseaseModelBase, DiseaseModel, DiseaseModelV2

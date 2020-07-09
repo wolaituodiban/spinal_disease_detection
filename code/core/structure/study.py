@@ -163,6 +163,40 @@ class Study(dict):
         masks = torch.tensor(masks, dtype=torch.bool)
         return images, masks
 
+    def transform(self, v_coords, d_coords, transverse_size, sagittal_size=None, k_nearest=0,
+                  max_dist=6, prob_rotate=0, max_angel=0, sagittal_shift=0):
+        """
+        生成study的训练数据
+        :param v_coords:
+        :param d_coords:
+        :param transverse_size:
+        :param sagittal_size:
+        :param k_nearest:
+        :param max_dist:
+        :param prob_rotate:
+        :param max_angel:
+        :param sagittal_shift:
+        :return:
+        """
+        # 随机对中间帧进行偏移操作
+        dicom_idx = self.t2_sagittal.instance_uids[self.t2_sagittal_middle_frame.instance_uid]
+        dicom_idx = random.randint(dicom_idx-sagittal_shift, dicom_idx+sagittal_shift)
+        dicom: DICOM = self.t2_sagittal[dicom_idx]
+        # 计算原先的坐标在偏移后的帧上的投影坐标
+        pixel_coord = torch.cat([v_coords, d_coords], dim=0)
+        human_coord = self.t2_sagittal_middle_frame.pixel_coord2human_coord(pixel_coord)
+        pixel_coord = dicom.projection(human_coord)
+        # 将被选中的矢状图转换成张量
+        sagittal_image, pixel_coord, distmap = dicom.transform(
+            pixel_coord, sagittal_size, prob_rotate, max_angel, distmap=True)
+
+        # 因为锥体的轴状图太少了，所以只提取椎间盘的轴状图
+        transverse_image, t_mask = self.t2_transverse_k_nearest(
+            d_coords, k=k_nearest, size=transverse_size, max_dist=max_dist,
+            prob_rotate=prob_rotate, max_angel=max_angel
+        )
+        return transverse_image, sagittal_image, distmap, pixel_coord, t_mask
+
 
 def _construct_studies(data_dir, multiprocessing=False):
     studies: Dict[str, Study] = {}

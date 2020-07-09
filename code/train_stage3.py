@@ -6,8 +6,7 @@ from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
 
 from code.core.disease.data_loader import DisDataLoader
 from code.core.disease.evaluation import Evaluator
-from code.core.disease.model import DiseaseModelV3
-from code.core.data_utils import SPINAL_DISC_ID, SPINAL_VERTEBRA_ID
+from code.core.disease.model import DiseaseModelV2
 from code.core.key_point import SpinalModel, KeyPointModelV2, KeyPointBCELossV2, NullLoss
 from code.core.structure import construct_studies
 
@@ -36,9 +35,9 @@ if __name__ == '__main__':
                                loss=KeyPointBCELossV2(lamb=1), spinal_model=spinal_model, loss_scaler=100,
                                num_cascades=2)
 
-    dis_model = DiseaseModelV3(
+    dis_model = DiseaseModelV2(
         kp_model, sagittal_size=(512, 512), loss_scaler=1, use_kp_loss=False, share_backbone=False,
-        transverse_size=(128, 128)
+        transverse_size=(128, 128), sagittal_shift=1
     )
 
     dis_model.kp_model.load_state_dict(torch.load('models/2020070102.kp_model_v2'))
@@ -50,7 +49,8 @@ if __name__ == '__main__':
     # 设定训练参数
     train_dataloader = DisDataLoader(
         train_studies, train_annotation, batch_size=8, num_workers=3, num_rep=20, prob_rotate=1, max_angel=180,
-        sagittal_size=dis_model.sagittal_size, transverse_size=dis_model.transverse_size, k_nearest=dis_model.k_nearest
+        sagittal_size=dis_model.sagittal_size, transverse_size=dis_model.transverse_size, k_nearest=dis_model.k_nearest,
+        sagittal_shift=dis_model.sagittal_shift, pin_memory=False
     )
 
     valid_evaluator = Evaluator(
@@ -59,14 +59,12 @@ if __name__ == '__main__':
 
     step_per_batch = len(train_dataloader)
     optimizer = torch.optim.AdamW(dis_model.parameters(), lr=1e-5, weight_decay=1e-2)
-    # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=step_per_batch, T_mult=2)
-    max_step = 50 * step_per_batch
+    max_step = 10 * step_per_batch
     fit_result = torch_utils.fit(
         dis_model,
         train_data=train_dataloader,
         valid_data=None,
         optimizer=optimizer,
-        # scheduler=scheduler,
         max_step=max_step,
         loss=NullLoss(),
         metrics=[valid_evaluator.metric],

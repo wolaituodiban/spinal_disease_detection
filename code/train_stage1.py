@@ -38,7 +38,8 @@ if __name__ == '__main__':
     # 设定训练参数
     train_dataloader = DisDataLoader(
         train_studies, train_annotation, batch_size=8, num_workers=3, num_rep=20, prob_rotate=1, max_angel=180,
-        sagittal_size=dis_model.sagittal_size, transverse_size=dis_model.sagittal_size, k_nearest=0
+        sagittal_size=dis_model.sagittal_size, transverse_size=dis_model.sagittal_size, k_nearest=0, max_dist=6,
+        sagittal_shift=1, pin_memory=True
     )
 
     valid_evaluator = Evaluator(
@@ -48,7 +49,7 @@ if __name__ == '__main__':
 
     step_per_batch = len(train_dataloader)
     optimizer = torch.optim.AdamW(dis_model.parameters(), lr=1e-5)
-    max_step = 20 * step_per_batch
+    max_step = 30 * step_per_batch
     fit_result = torch_utils.fit(
         dis_model,
         train_data=train_dataloader,
@@ -62,5 +63,5 @@ if __name__ == '__main__':
         evaluate_fn=valid_evaluator,
     )
 
-    torch.save(dis_model.backbone.cpu().state_dict(), 'models/pretrained.dis_model')
+    torch.save(dis_model.backbone.cpu().state_dict(), 'models/pretrained.kp_model')
     print('task completed, {} seconds used'.format(time.time() - start_time))

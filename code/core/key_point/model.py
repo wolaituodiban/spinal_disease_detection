@@ -120,7 +120,6 @@ class KeyPointModelV2(KeyPointModel):
         self.cascade_heads = torch.nn.ModuleList(cascade_heads)
         self.cascade_loss = cascade_loss
         self.loss_scaler = loss_scaler
-        self.spinal_model_base = SpinalModelBase()
 
     def kp_parameters(self):
         for p in super().kp_parameters():
@@ -139,7 +138,7 @@ class KeyPointModelV2(KeyPointModel):
 
     def collect_cascades_losses(self, cascades_outputs: List[torch.Tensor], distmaps, masks) -> List[torch.Tensor]:
         losses = []
-        gt_coords = self.spinal_model_base(-distmaps).float()
+        gt_coords = SpinalModelBase.forward(-distmaps).float()
         size = torch.tensor(distmaps.shape[-2:], dtype=torch.float32, device=distmaps.device)
         for pred_coords in cascades_outputs:
             loss = self.cascade_loss(pred_coords, gt_coords, masks, size) * self.loss_scaler

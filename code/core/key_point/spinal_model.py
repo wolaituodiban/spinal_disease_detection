@@ -19,7 +19,8 @@ def cal_vertical_angle(x, y):
 
 
 class SpinalModelBase(torch.nn.Module):
-    def forward(self, heatmaps: torch.Tensor):
+    @staticmethod
+    def forward(heatmaps: torch.Tensor):
         """
 
         :param heatmaps: (num_batch, num_points, height, width)
@@ -181,5 +182,3 @@ class SpinalModel(SpinalModelBase):
 
         max_idx = torch.argmax(scores)
         return candidates[max_idx]
-
-

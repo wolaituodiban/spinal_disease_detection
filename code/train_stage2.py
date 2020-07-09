@@ -25,7 +25,6 @@ if __name__ == '__main__':
         frame = study.t2_sagittal_middle_frame
         train_images[(study_uid, frame.series_uid, frame.instance_uid)] = frame.image
 
-    # stage one
     backbone = resnet_fpn_backbone('resnet50', True)
     spinal_model = SpinalModel(train_images, train_annotation,
                                num_candidates=128, num_selected_templates=8,
@@ -36,13 +35,14 @@ if __name__ == '__main__':
     kp_model.load_state_dict(torch.load('models/pretrained.kp_model'), strict=False)
 
     dis_model = DiseaseModelBase(kp_model, sagittal_size=(512, 512))
-    dis_model.cuda(1)
+    dis_model.cuda(0)
     print(dis_model)
 
     # 设定训练参数
     train_dataloader = DisDataLoader(
         train_studies, train_annotation, batch_size=8, num_workers=3, num_rep=20, prob_rotate=1, max_angel=180,
-        sagittal_size=dis_model.sagittal_size, transverse_size=dis_model.sagittal_size, k_nearest=0
+        sagittal_size=dis_model.sagittal_size, transverse_size=dis_model.sagittal_size, k_nearest=0, max_dist=6,
+        sagittal_shift=1, pin_memory=True
     )
 
     valid_evaluator = Evaluator(
@@ -52,7 +52,7 @@ if __name__ == '__main__':
 
     step_per_batch = len(train_dataloader)
     optimizer = torch.optim.AdamW(dis_model.parameters(), lr=1e-5)
-    max_step = 40 * step_per_batch
+    max_step = 50 * step_per_batch
     fit_result = torch_utils.fit(
         dis_model,
         train_data=train_dataloader,
@@ -66,5 +66,5 @@ if __name__ == '__main__':
         evaluate_fn=valid_evaluator,
     )
 
-    torch.save(dis_model.backbone.cpu().state_dict(), 'models/pretrained.dis_model_v2')
+    torch.save(dis_model.backbone.cpu().state_dict(), 'models/pretrained.kp_model_v2')
     print('task completed, {} seconds used'.format(time.time() - start_time))

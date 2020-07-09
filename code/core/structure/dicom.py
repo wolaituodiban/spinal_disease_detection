@@ -199,7 +199,7 @@ class DICOM:
         :param coord: 像素坐标，Nx2的矩阵或者长度为2的向量
         :return: 人坐标系坐标，Nx3的矩阵或者长度为3的向量
         """
-        return torch.matmul(coord * self.pixel_spacing, self.image_orientation) + self.image_position
+        return torch.matmul(coord.cpu() * self.pixel_spacing, self.image_orientation) + self.image_position
 
     def point_distance(self, human_coord: torch.Tensor) -> torch.Tensor:
         """
@@ -207,7 +207,7 @@ class DICOM:
         :param human_coord: 人坐标系坐标，Nx3的矩阵或者长度为3的向量
         :return: 长度为N的向量或者标量
         """
-        return torch.matmul(human_coord - self.image_position, self.unit_normal_vector).abs()
+        return torch.matmul(human_coord.cpu() - self.image_position, self.unit_normal_vector).abs()
 
     def projection(self, human_coord: torch.Tensor) -> torch.Tensor:
         """
