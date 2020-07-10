@@ -4,10 +4,8 @@ import time
 import torch
 from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
 
-from code.core.disease.data_loader import DisDataLoader
-from code.core.disease.evaluation import Evaluator
-from code.core.disease.model import DiseaseModelV2
-from code.core.key_point import SpinalModel, KeyPointModelV2, KeyPointBCELossV2, NullLoss
+from code.core.disease import DisDataLoader, Evaluator, DiseaseModelV2, DisLoss
+from code.core.key_point import SpinalModel, KeyPointModelV2, KeyPointBCELossV2, NullLoss, CascadeLossV2
 from code.core.structure import construct_studies
 
 sys.path.append('../nn_tools/')
@@ -32,34 +30,34 @@ if __name__ == '__main__':
                                num_candidates=128, num_selected_templates=8,
                                max_translation=0.05, scale_range=(0.9, 1.1), max_angel=10)
     kp_model = KeyPointModelV2(backbone, pixel_mean=0.5, pixel_std=1,
-                               loss=KeyPointBCELossV2(lamb=1), spinal_model=spinal_model, loss_scaler=100,
-                               num_cascades=2)
-
+                               loss=KeyPointBCELossV2(lamb=1), spinal_model=spinal_model,
+                               cascade_loss=CascadeLossV2(1), loss_scaler=100, num_cascades=3)
     dis_model = DiseaseModelV2(
-        kp_model, sagittal_size=(512, 512), loss_scaler=1, use_kp_loss=False, share_backbone=False,
-        transverse_size=(128, 128), sagittal_shift=1
+        kp_model, sagittal_size=(512, 512), loss_scaler=0.01, use_kp_loss=True, share_backbone=False,
+        transverse_size=(192, 192), sagittal_shift=1, k_nearest=3,
+        disc_loss=DisLoss(), vertebra_loss=DisLoss()
     )
 
-    dis_model.kp_model.load_state_dict(torch.load('models/2020070102.kp_model_v2'))
+    dis_model.kp_model.load_state_dict(torch.load('models/2020070901.kp_model_v2'))
     assert dis_model.kp_model is not None
     assert dis_model.backbone.backbone is not dis_model.kp_model.backbone
-    dis_model.cuda(1)
+    dis_model.cuda(0)
     print(dis_model)
 
     # 设定训练参数
     train_dataloader = DisDataLoader(
         train_studies, train_annotation, batch_size=8, num_workers=3, num_rep=20, prob_rotate=1, max_angel=180,
         sagittal_size=dis_model.sagittal_size, transverse_size=dis_model.transverse_size, k_nearest=dis_model.k_nearest,
-        sagittal_shift=dis_model.sagittal_shift, pin_memory=False
+        sagittal_shift=dis_model.sagittal_shift, pin_memory=True
     )
 
     valid_evaluator = Evaluator(
-        dis_model, valid_studies, 'data/lumbar_train51_annotation.json', num_rep=20, max_dist=6,
+        dis_model, valid_studies, 'data/lumbar_train51_annotation.json', num_rep=5, max_dist=6,
     )
 
     step_per_batch = len(train_dataloader)
     optimizer = torch.optim.AdamW(dis_model.parameters(), lr=1e-5, weight_decay=1e-2)
-    max_step = 10 * step_per_batch
+    max_step = 50 * step_per_batch
     fit_result = torch_utils.fit(
         dis_model,
         train_data=train_dataloader,

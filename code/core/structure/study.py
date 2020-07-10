@@ -8,7 +8,7 @@ import torch
 from torchvision.transforms import functional as tf
 from .dicom import DICOM, lazy_property
 from .series import Series
-from ..data_utils import read_annotation, resize
+from ..data_utils import read_annotation
 
 
 class Study(dict):
@@ -59,7 +59,7 @@ class Study(dict):
 
         if self.t2_sagittal_uid is None:
             for series_uid, series in self.items():
-                if series.plane == 'sagittal':
+                if series.plane == 'sagittal' and series.t_type != 'T1':
                     t2_sagittal_mean = series.mean
                     if t2_sagittal_mean > max_t2_sagittal_mean:
                         max_t2_sagittal_mean = t2_sagittal_mean
@@ -216,7 +216,7 @@ def _construct_studies(data_dir, multiprocessing=False):
     return studies
 
 
-def _set_middle_frame(studies: Dict[str, Study], annotation):
+def count_error_middle_frame(studies, annotation):
     counter = {
         't2_sagittal_not_found': [],
         't2_sagittal_miss_match': [],
@@ -236,8 +236,14 @@ def _set_middle_frame(studies: Dict[str, Study], annotation):
                 z_index = t2_sagittal.instance_uids[middle_frame.instance_uid]
                 if abs(gt_z_index - z_index) > 1:
                     counter['t2_sagittal_middle_frame_miss_match'].append(study.study_uid)
-            study.set_t2_sagittal_middle_frame(k[1], k[2])
     return counter
+
+
+def set_middle_frame(studies: Dict[str, Study], annotation):
+    for k in annotation.keys():
+        if k[0] in studies:
+            study = studies[k[0]]
+            study.set_t2_sagittal_middle_frame(k[1], k[2])
 
 
 def construct_studies(data_dir, annotation_path=None, multiprocessing=False):
@@ -255,7 +261,6 @@ def construct_studies(data_dir, annotation_path=None, multiprocessing=False):
         return studies
     else:
         annotation = read_annotation(annotation_path)
-        counter = _set_middle_frame(studies, annotation)
+        counter = count_error_middle_frame(studies, annotation)
+        set_middle_frame(studies, annotation)
         return studies, annotation, counter
-
-# TODO 添加一个使用中间帧的旁边两帧的数据增广函数

@@ -96,6 +96,11 @@ class Series(list):
         study_uid_counter = Counter([d.study_uid for d in self])
         return study_uid_counter.most_common(1)[0][0]
 
+    @lazy_property
+    def series_description(self):
+        study_uid_counter = Counter([d.series_description for d in self])
+        return study_uid_counter.most_common(1)[0][0]
+
     def point_distance(self, coord: torch.Tensor):
         """
         点到序列中每一张图像平面的距离，单位为毫米

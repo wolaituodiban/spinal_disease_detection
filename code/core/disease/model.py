@@ -314,7 +314,7 @@ class DiseaseModel(DiseaseModelBase):
 
         # 提取transverse特征
         transverse, t_mask = study.t2_transverse_k_nearest(
-            d_coord_med[0].cpu(), k=self.k_nearest, size=self.transverse_size, max_dist=self.max_dist
+            d_coord_med.cpu(), k=self.k_nearest, size=self.transverse_size, max_dist=self.max_dist
         )
         num_sagittals = 2 * self.sagittal_shift + 1
         d_feature = self._agg_features(
