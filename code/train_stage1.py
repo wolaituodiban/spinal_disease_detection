@@ -17,7 +17,7 @@ if __name__ == '__main__':
     train_studies, train_annotation, train_counter = construct_studies(
         'data/lumbar_train150', 'data/lumbar_train150_annotation.json', multiprocessing=True)
     valid_studies, valid_annotation, valid_counter = construct_studies(
-        'data/train/', 'data/lumbar_train51_annotation.json', multiprocessing=True)
+        'data/lumbar_train51/', 'data/lumbar_train51_annotation.json', multiprocessing=True)
 
     # 设定模型参数
     train_images = {}
@@ -30,7 +30,7 @@ if __name__ == '__main__':
                                num_candidates=128, num_selected_templates=8,
                                max_translation=0.05, scale_range=(0.9, 1.1), max_angel=10)
     kp_model = KeyPointModel(backbone, pixel_mean=0.5, pixel_std=1,
-                             loss=KeyPointBCELossV2(lamb=1), spinal_model=spinal_model).cuda()
+                             loss=KeyPointBCELossV2(lamb=1), spinal_model=spinal_model)
     dis_model = DiseaseModelBase(kp_model, sagittal_size=(512, 512))
     dis_model.cuda()
     print(dis_model)

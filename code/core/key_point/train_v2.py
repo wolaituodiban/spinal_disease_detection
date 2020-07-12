@@ -17,7 +17,7 @@ from nn_tools import torch_utils
 if __name__ == '__main__':
     start_time = time.time()
     train_images, train_metainfos = read_dcms('data/lumbar_train150/')
-    valid_images, valid_metainfos = read_dcms('data/train/')
+    valid_images, valid_metainfos = read_dcms('data/lumbar_train51/')
 
     train_spacings = get_spacing(train_metainfos)
     valid_spacings = get_spacing(valid_metainfos)

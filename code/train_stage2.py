@@ -17,7 +17,7 @@ if __name__ == '__main__':
     train_studies, train_annotation, train_counter = construct_studies(
         'data/lumbar_train150', 'data/lumbar_train150_annotation.json', multiprocessing=True)
     valid_studies, valid_annotation, valid_counter = construct_studies(
-        'data/train/', 'data/lumbar_train51_annotation.json', multiprocessing=True)
+        'data/lumbar_train51/', 'data/lumbar_train51_annotation.json', multiprocessing=True)
 
     # 设定模型参数
     train_images = {}
@@ -31,18 +31,18 @@ if __name__ == '__main__':
                                max_translation=0.05, scale_range=(0.9, 1.1), max_angel=10)
     kp_model = KeyPointModelV2(backbone, pixel_mean=0.5, pixel_std=1,
                                loss=KeyPointBCELossV2(lamb=1), spinal_model=spinal_model,
-                               cascade_loss=CascadeLossV2(1), loss_scaler=100, num_cascades=3).cuda()
+                               cascade_loss=CascadeLossV2(1), loss_scaler=100, num_cascades=3)
     kp_model.load_state_dict(torch.load('models/pretrained.kp_model'), strict=False)
 
     dis_model = DiseaseModelBase(kp_model, sagittal_size=(512, 512))
-    dis_model.cuda(0)
+    dis_model.cuda()
     print(dis_model)
 
     # 设定训练参数
     train_dataloader = DisDataLoader(
         train_studies, train_annotation, batch_size=8, num_workers=3, num_rep=20, prob_rotate=1, max_angel=180,
         sagittal_size=dis_model.sagittal_size, transverse_size=dis_model.sagittal_size, k_nearest=0, max_dist=6,
-        sagittal_shift=1, pin_memory=True
+        sagittal_shift=1, pin_memory=False
     )
 
     valid_evaluator = Evaluator(

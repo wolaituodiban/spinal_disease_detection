@@ -17,7 +17,7 @@ if __name__ == '__main__':
     train_studies, train_annotation, train_counter = construct_studies(
         'data/lumbar_train150', 'data/lumbar_train150_annotation.json', multiprocessing=True)
     valid_studies, valid_annotation, valid_counter = construct_studies(
-        'data/train/', 'data/lumbar_train51_annotation.json', multiprocessing=True)
+        'data/lumbar_train51/', 'data/lumbar_train51_annotation.json', multiprocessing=True)
 
     # 设定模型参数
     train_images = {}
