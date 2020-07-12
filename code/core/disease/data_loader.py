@@ -1,10 +1,10 @@
 from typing import Any, Dict, List, Tuple
 
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 
 from ..data_utils import gen_mask
-from ..structure import DICOM, Study
+from ..structure import Study
 
 
 class DisDataSet(Dataset):
@@ -86,13 +86,36 @@ class DisDataSet(Dataset):
         label = (None, )
         return data, label
 
+    def gen_sampler(self):
+        v_annos, d_annos = [], []
+        for key, (v_anno, d_anno) in self.annotations:
+            v_annos.append(v_anno[:, -1])
+            d_annos.append(d_anno[:, -1])
+        v_annos = torch.stack(v_annos, dim=0)
+        d_annos = torch.stack(d_annos, dim=0)
+
+        v_count = torch.unique(v_annos, return_counts=True)[1]
+        d_count = torch.unique(d_annos, return_counts=True)[1]
+
+        v_weights = torch.true_divide(1, torch.cumprod(v_count[v_annos], dim=-1)[:, -1])
+        d_weights = torch.true_divide(1, torch.cumprod(d_count[d_annos], dim=-1)[:, -1])
+
+        weights = v_weights * d_weights
+        return WeightedRandomSampler(weights=weights, num_samples=len(self), replacement=True)
+
 
 class DisDataLoader(DataLoader):
-    # TODO 添加一些sampling的方法
     def __init__(self, studies, annotations, batch_size, sagittal_size, transverse_size, k_nearest, prob_rotate=False,
-                 max_angel=0, max_dist=8, sagittal_shift=0, num_workers=0,  num_rep=1, pin_memory=False):
+                 max_angel=0, max_dist=8, sagittal_shift=0, num_workers=0,  num_rep=1, pin_memory=False,
+                 sampling_strategy=None):
+        assert sampling_strategy in {'balance', None}
         dataset = DisDataSet(studies=studies, annotations=annotations, sagittal_size=sagittal_size,
                              transverse_size=transverse_size, k_nearest=k_nearest, prob_rotate=prob_rotate,
                              max_angel=max_angel, num_rep=num_rep, max_dist=max_dist, sagittal_shift=sagittal_shift)
-        super().__init__(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers,
-                         pin_memory=pin_memory, collate_fn=dataset.collate_fn)
+        if sampling_strategy == 'balance':
+            sampler = dataset.gen_sampler()
+            super().__init__(dataset, batch_size=batch_size, sampler=sampler, num_workers=num_workers,
+                             pin_memory=pin_memory, collate_fn=dataset.collate_fn)
+        else:
+            super().__init__(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers,
+                             pin_memory=pin_memory, collate_fn=dataset.collate_fn)

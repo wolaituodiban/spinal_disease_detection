@@ -42,7 +42,7 @@ if __name__ == '__main__':
     train_dataloader = DisDataLoader(
         train_studies, train_annotation, batch_size=8, num_workers=3, num_rep=20, prob_rotate=1, max_angel=180,
         sagittal_size=dis_model.sagittal_size, transverse_size=dis_model.sagittal_size, k_nearest=0, max_dist=6,
-        sagittal_shift=1, pin_memory=False
+        sagittal_shift=1, pin_memory=True
     )
 
     valid_evaluator = Evaluator(

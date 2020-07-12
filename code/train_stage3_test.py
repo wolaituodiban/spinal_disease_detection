@@ -33,20 +33,23 @@ if __name__ == '__main__':
                                loss=KeyPointBCELossV2(lamb=1), spinal_model=spinal_model,
                                cascade_loss=CascadeLossV2(1), loss_scaler=100, num_cascades=3)
     kp_model.load_state_dict(torch.load('models/2020070901.kp_model_v2'))
+
     dis_model = DiseaseModelV2(
-        kp_model, sagittal_size=(512, 512), loss_scaler=0.01, use_kp_loss=True, share_backbone=True,
+        kp_model, sagittal_size=(512, 512), loss_scaler=1, use_kp_loss=False, share_backbone=False,
         transverse_size=(192, 192), sagittal_shift=1, k_nearest=0,
-        # disc_loss=DisLoss(), vertebra_loss=DisLoss()
+        disc_loss=DisLoss(), vertebra_loss=DisLoss()
     )
 
-    dis_model.cuda()
+    assert dis_model.kp_model is not None
+    assert dis_model.backbone.backbone is not dis_model.kp_model.backbone
+    dis_model.cuda(1)
     print(dis_model)
 
     # 设定训练参数
     train_dataloader = DisDataLoader(
         train_studies, train_annotation, batch_size=8, num_workers=3, num_rep=20, prob_rotate=1, max_angel=180,
         sagittal_size=dis_model.sagittal_size, transverse_size=dis_model.transverse_size, k_nearest=dis_model.k_nearest,
-        sagittal_shift=dis_model.sagittal_shift, pin_memory=True, sampling_strategy=None
+        sagittal_shift=dis_model.sagittal_shift, pin_memory=False, sampling_strategy='balance'
     )
 
     valid_evaluator = Evaluator(
@@ -55,7 +58,7 @@ if __name__ == '__main__':
 
     step_per_batch = len(train_dataloader)
     optimizer = torch.optim.AdamW(dis_model.parameters(), lr=1e-5)
-    max_step = 30 * step_per_batch
+    max_step = 10 * step_per_batch
     fit_result = torch_utils.fit(
         dis_model,
         train_data=train_dataloader,
