@@ -4,9 +4,9 @@ import time
 import torch
 from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
 
-from .core.disease import DisDataLoader, DiseaseModelBase, Evaluator
-from .core.key_point import KeyPointModel, NullLoss, SpinalModel, KeyPointBCELossV2
-from .core.structure import construct_studies
+from code.core.disease import DisDataLoader, DiseaseModelBase, Evaluator
+from code.core.key_point import KeyPointModel, NullLoss, SpinalModel, KeyPointBCELossV2
+from code.core.structure import construct_studies
 
 sys.path.append('../nn_tools/')
 from nn_tools import torch_utils

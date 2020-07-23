@@ -1,3 +1,4 @@
+import math
 from copy import deepcopy
 from typing import Tuple
 import torch
@@ -160,7 +161,9 @@ class DiseaseModel(DiseaseModelBase):
                  disc_loss=DisLoss([0.4327, 0.7930, 0.8257, 6.4286, 16.3636]),
                  loss_scaler=1,
                  use_kp_loss=False,
-                 max_dist=6):
+                 max_dist=6,
+                 vertebra_score_scaler=None,
+                 disc_score_scaler=None):
         super().__init__(kp_model=kp_model, sagittal_size=sagittal_size)
         if share_backbone:
             self.kp_model = None
@@ -178,15 +181,40 @@ class DiseaseModel(DiseaseModelBase):
         self.loss_scaler = loss_scaler
         self.max_dist = max_dist
 
+        # rescaler the score to overcome imbalance
+        self.set_vetebra_score_scaler(vertebra_score_scaler)
+        self.set_disc_score_scaler(disc_score_scaler)
+
         # 为了兼容性，实际上没有用
         self.k_nearest = 0
         self.transverse_size = self.sagittal_size
+
+    def set_vetebra_score_scaler(self, vertebra_score_scaler: list):
+        if vertebra_score_scaler is None:
+            vertebra_score_scaler = torch.ones(self.num_vertebra_diseases)
+        else:
+            vertebra_score_scaler = torch.tensor(vertebra_score_scaler)
+        self.register_buffer('vertebra_score_scaler', vertebra_score_scaler)
+
+    def set_disc_score_scaler(self, disc_score_scaler: list):
+        if disc_score_scaler is None:
+            disc_score_scaler = torch.ones(self.num_disc_diseases)
+        else:
+            disc_score_scaler = torch.tensor(disc_score_scaler)
+        self.register_buffer('disc_score_scaler', disc_score_scaler)
 
     def disease_parameters(self, recurse=True):
         for p in self.vertebra_head.parameters(recurse):
             yield p
         for p in self.disc_head.parameters(recurse):
             yield p
+
+    def _rescale_score(self, vertebra_scores, disc_scores):
+        vertebra_scores = vertebra_scores.sigmoid()
+        disc_scores = disc_scores.sigmoid()
+        vertebra_scores = vertebra_scores * self.vertebra_score_scaler
+        disc_scores = disc_scores * self.disc_score_scaler
+        return vertebra_scores, disc_scores
 
     def _mask_pred(self, pred_coords, distmaps):
         width_indices = pred_coords[:, :, 0].flatten().clamp(0, distmaps.shape[-1]-1)
@@ -326,6 +354,7 @@ class DiseaseModel(DiseaseModelBase):
         # 计算分数，并取中位数
         v_score = self.vertebra_head(v_feature).median(dim=0)[0]
         d_score = self.disc_head(d_feature).median(dim=0)[0]
+        v_score, d_score = self._rescale_score(v_score, d_score)
 
         # 将预测的坐标调整到原来的大小，注意要在extract_point_feature之后变换
         height_ratio = self.sagittal_size[0] / middle_frame_size[1]
@@ -341,8 +370,47 @@ class DiseaseModel(DiseaseModelBase):
         else:
             return v_coord_med, v_score, d_coord_med, d_score
 
+class DiseaseHead(torch.nn.Module):
+    def __init__(self, in_channels, num_points, num_diseases):
+        super().__init__()
+        self.bias = torch.nn.Parameter(torch.empty(num_points, in_channels))
+        self.weights = torch.nn.Parameter(torch.empty(num_points, in_channels, in_channels))
+        torch.nn.init.kaiming_uniform_(self.bias, a=math.sqrt(5))
+        torch.nn.init.kaiming_uniform_(self.weights, a=math.sqrt(5))
+        self.relu = torch.nn.ReLU(inplace=True)
+        self.norm = torch.nn.LayerNorm(in_channels)
+        self.linear = torch.nn.Linear(in_channels, num_diseases)
+
+    def forward(self, features):
+        point_wise = (features.unsqueeze(-1) * self.weights).sum(-1) + self.bias
+        point_wise = self.norm(point_wise)
+        features = features + point_wise
+        features = self.relu(features)
+        return self.linear(features)
+
 
 class DiseaseModelV2(DiseaseModel):
+    def __init__(self,
+                 kp_model: KeyPointModel,
+                 sagittal_size: Tuple[int, int],
+                 sagittal_shift: int = 0,
+                 share_backbone=False,
+                 vertebra_loss=DisLoss([2.2727, 0.6410]),
+                 disc_loss=DisLoss([0.4327, 0.7930, 0.8257, 6.4286, 16.3636]),
+                 loss_scaler=1,
+                 use_kp_loss=False,
+                 max_dist=6,
+                 vertebra_score_scaler=None,
+                 disc_score_scaler=None):
+        super().__init__(kp_model=kp_model, sagittal_size=sagittal_size, sagittal_shift=sagittal_shift,
+                         share_backbone=share_backbone, vertebra_loss=vertebra_loss, disc_loss=disc_loss,
+                         loss_scaler=loss_scaler, use_kp_loss=use_kp_loss, max_dist=max_dist,
+                         vertebra_score_scaler=vertebra_score_scaler, disc_score_scaler=disc_score_scaler)
+        self.disc_head = DiseaseHead(self.out_channels, self.num_disc_points, self.num_disc_diseases)
+        self.vertebra_head = DiseaseHead(self.out_channels, self.num_vertebra_points, self.num_vertebra_diseases)
+
+
+class DiseaseModelV3(DiseaseModelV2):
     def __init__(self,
                  kp_model: KeyPointModel,
                  sagittal_size: Tuple[int, int],
@@ -354,21 +422,23 @@ class DiseaseModelV2(DiseaseModel):
                  loss_scaler=1,
                  use_kp_loss=False,
                  max_dist=6,
+                 vertebra_score_scaler=None,
+                 disc_score_scaler=None,
                  k_nearest=0,
                  nhead=8,
-                 transverse_only=False,
-                 ):
+                 transverse_only=False):
         super().__init__(kp_model=kp_model, sagittal_size=sagittal_size, sagittal_shift=sagittal_shift,
                          share_backbone=share_backbone, vertebra_loss=vertebra_loss, disc_loss=disc_loss,
-                         loss_scaler=loss_scaler, use_kp_loss=use_kp_loss, max_dist=max_dist)
+                         loss_scaler=loss_scaler, use_kp_loss=use_kp_loss, max_dist=max_dist,
+                         vertebra_score_scaler=vertebra_score_scaler, disc_score_scaler=disc_score_scaler)
         self.transverse_size = transverse_size
         self.k_nearest = k_nearest
         self.transverse_only = transverse_only
 
+        self.backbone2 = deepcopy(kp_model)
         self.transverse_block = torch.nn.Sequential(
-            torch.nn.Conv2d(
-                self.resnet_out_channels, self.out_channels,
-                kernel_size=(transverse_size[0]//32, transverse_size[1]//32)),
+            torch.nn.AdaptiveAvgPool2d(output_size=(1, 1)),
+            torch.nn.Conv2d(self.resnet_out_channels, self.out_channels, kernel_size=(1, 1)),
             torch.nn.BatchNorm2d(self.out_channels),
             torch.nn.ReLU(inplace=True)
         )
@@ -388,13 +458,13 @@ class DiseaseModelV2(DiseaseModel):
         :param d_point_feats: 椎间盘点特征，(num_batch, num_points, out_channels)
         :param transverses: (num_batch, num_points, k_nearest, 1, height, width)
         :param t_masks: (num_batch, num_points, k_nearest)，轴状图为padding的地方是True
-        :return:
+        :return: (num_batch, num_points, out_channels)
         """
         # T当k nearest为0时，功能退化为V1
         if self.k_nearest <= 0:
             return d_point_feats
 
-        t_features = self.backbone.cal_backbone(transverses.flatten(end_dim=2))
+        t_features = self.backbone2.cal_backbone(transverses.flatten(end_dim=2))
         t_features = self.transverse_block(t_features).reshape(*transverses.shape[:3], -1)
         t_masks = t_masks.to(t_features.device)
 
@@ -408,9 +478,15 @@ class DiseaseModelV2(DiseaseModel):
             d_masks = torch.zeros(*t_masks.shape[:2], 1, device=t_masks.device, dtype=t_masks.dtype)
             all_masks = torch.cat([d_masks, t_masks], dim=2)
 
-        all_features = all_features.flatten(end_dim=1).permute(1, 0, 2)
-        all_masks = all_masks.flatten(end_dim=1)
-
-        final_features = self.aggregation(all_features, src_key_padding_mask=all_masks)[0]
-        final_features = final_features.reshape(*transverses.shape[:2], -1)
+        # all_features: (batch_size, num_points, k_nearest, channels)
+        if all_features.shape[2] == 1:
+            final_features = all_features[:, :, 0]
+        else:
+            all_features = all_features.flatten(end_dim=1).permute(1, 0, 2)
+            all_masks = all_masks.flatten(end_dim=1)
+            print('haha')
+            final_features = self.aggregation(all_features, src_key_padding_mask=all_masks)[0]
+            final_features = final_features.reshape(*transverses.shape[:2], -1)
         return final_features
+
+

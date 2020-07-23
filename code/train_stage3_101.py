@@ -4,7 +4,7 @@ import time
 import torch
 from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
 
-from code.core.disease import DisDataLoader, Evaluator, DiseaseModelV3, DisLoss
+from code.core.disease import DisDataLoader, Evaluator, DiseaseModelV2, DisLoss
 from code.core.key_point import SpinalModel, KeyPointModelV2, KeyPointBCELossV2, NullLoss, CascadeLossV2
 from code.core.structure import construct_studies
 
@@ -25,17 +25,18 @@ if __name__ == '__main__':
         frame = study.t2_sagittal_middle_frame
         train_images[(study_uid, frame.series_uid, frame.instance_uid)] = frame.image
 
-    backbone = resnet_fpn_backbone('resnet50', True)
+    backbone = resnet_fpn_backbone('resnet101', True)
     spinal_model = SpinalModel(train_images, train_annotation,
                                num_candidates=128, num_selected_templates=8,
                                max_translation=0.05, scale_range=(0.9, 1.1), max_angel=10)
     kp_model = KeyPointModelV2(backbone, pixel_mean=0.5, pixel_std=1,
                                loss=KeyPointBCELossV2(lamb=1), spinal_model=spinal_model,
                                cascade_loss=CascadeLossV2(1), loss_scaler=100, num_cascades=3)
-    kp_model.load_state_dict(torch.load('../models/2020070901.kp_model_v2'))
-    dis_model = DiseaseModelV3(
+    kp_model.load_state_dict(torch.load('../models/pretrained101.kp_model_v2'))
+    dis_model = DiseaseModelV2(
         kp_model, sagittal_size=(512, 512), loss_scaler=0.01, use_kp_loss=True, share_backbone=True,
-        transverse_size=(192, 192), sagittal_shift=1, k_nearest=1, transverse_only=True
+        transverse_size=(192, 192), sagittal_shift=1, k_nearest=0,
+        # disc_loss=DisLoss(), vertebra_loss=DisLoss()
     )
 
     dis_model.cuda(1)
@@ -53,13 +54,15 @@ if __name__ == '__main__':
     )
 
     step_per_batch = len(train_dataloader)
-    optimizer = torch.optim.AdamW(dis_model.parameters(), lr=1e-5)
-    max_step = 40 * step_per_batch
+    optimizer = torch.optim.AdamW(dis_model.parameters(), lr=5e-6)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=step_per_batch, T_mult=2)
+    max_step = 30 * step_per_batch
     fit_result = torch_utils.fit(
         dis_model,
         train_data=train_dataloader,
         valid_data=None,
         optimizer=optimizer,
+        scheduler=scheduler,
         max_step=max_step,
         loss=NullLoss(),
         metrics=[valid_evaluator.metric],
@@ -69,5 +72,5 @@ if __name__ == '__main__':
     )
 
     dis_model.kp_model = None
-    torch.save(dis_model.cpu().state_dict(), '../models/pretrained.dis_model_v3')
+    torch.save(dis_model.cpu().state_dict(), '../models/pretrained.dis_model')
     print('task completed, {} seconds used'.format(time.time() - start_time))
